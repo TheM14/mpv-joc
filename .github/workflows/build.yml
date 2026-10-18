@@ -1,4 +1,3 @@
-
 name: build
 
 on:
@@ -96,45 +95,25 @@ jobs:
             Out-File -Append $env:GITHUB_ENV
 
       - name: Build mpv
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          core_dir="$(cygpath -u "$JOC_CORE_DIR")"
+          cd mpv
+          meson setup build --buildtype=release -Dgpl=false -Dlua=luajit "-Djoc-core-dir=$core_dir"
+          ninja -C build
+
+      - name: Bundle dependencies
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          bash fork/tools/bundle_dlls.sh "$PWD/mpv/build"
+          cp "$(cygpath -u "$JOC_CORE_DIR")/joc_core.dll" mpv/build/
+          cp fork/mpv.conf.example mpv/build/
+
+      - name: Package
         shell: pwsh
         run: |
-          $bash = "C:\msys64\usr\bin\bash.exe"
-          $dirWin = (Resolve-Path mpv).Path
-          $dir = (& $bash -lc "cygpath -u '$dirWin'").Trim()
-          $core = (& $bash -lc "cygpath -u '$env:JOC_CORE_DIR'").Trim()
-
-          $lines = @(
-            'set -e',
-            'export PATH=/mingw64/bin:/usr/bin:$PATH',
-            'export MSYSTEM=MINGW64',
-            "cd '$dir'",
-            "meson setup build --buildtype=release -Dgpl=false -Dlua=luajit -Djoc-core-dir='$core'",
-            'ninja -C build'
-          )
-
-          ($lines -join "`n") |
-            & $bash -lc 'cat > /tmp/build-mpv.sh && bash /tmp/build-mpv.sh'
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "mpv build failed"
-          }
-
-      - name: Bundle
-        shell: pwsh
-        run: |
-          $bash = "C:\msys64\usr\bin\bash.exe"
-          $dirWin = (Resolve-Path mpv).Path
-          $dir = (& $bash -lc "cygpath -u '$dirWin'").Trim()
-          $workspace = (& $bash -lc "cygpath -u '$env:GITHUB_WORKSPACE'").Trim()
-
-          & $bash -lc "bash '$workspace/fork/tools/bundle_dlls.sh' '$dir/build'"
-          if ($LASTEXITCODE -ne 0) {
-            throw "DLL bundling failed"
-          }
-
-          Copy-Item (Join-Path $env:JOC_CORE_DIR "joc_core.dll") mpv/build -Force
-          Copy-Item fork/mpv.conf.example mpv/build -Force
-
           Compress-Archive -Path mpv/build/* -DestinationPath mpv-ad-joc.zip
 
       - uses: actions/upload-artifact@v4

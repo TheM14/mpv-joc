@@ -1,0 +1,170 @@
+
+name: build-android
+
+on:
+  workflow_dispatch:
+    inputs:
+      mpv_ref:
+        description: "Upstream mpv branch, tag or commit"
+        required: false
+        default: "master"
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      MPV_REF: ${{ inputs.mpv_ref || 'master' }}
+
+    steps:
+      - name: Checkout mpv-joc
+        uses: actions/checkout@v4
+
+      - name: Checkout mpv-android build system
+        run: git clone --depth 1 https://github.com/mpv-android/mpv-android.git android
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake libtool pkg-config ninja-build gperf nasm yasm \
+            python3-pip cmake gettext autopoint unzip xz-utils bzip2 wget
+          python3 -m pip install --user --break-system-packages --upgrade meson
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Download Android SDK and NDK
+        working-directory: android/buildscripts
+        env:
+          IN_CI: '1'
+        run: ./include/download-sdk.sh
+
+      - name: Clone JOC core
+        run: git clone --depth 1 https://github.com/TheM14/JustOneCacophony.git joc
+
+      - name: Build libjoc_core.so for arm64-v8a
+        shell: bash
+        run: |
+          set -euo pipefail
+          source android/buildscripts/include/depinfo.sh
+          ndk="$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}"
+          test -f "$ndk/build/cmake/android.toolchain.cmake"
+          cmake -S joc -B joc/build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-23 \
+            -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJOC_BUILD_TESTS=OFF \
+            -DJOC_BUILD_DEVTOOLS=OFF
+          cmake --build joc/build-android --target joc_core --parallel 4
+          test -s joc/build-android/libjoc_core.so
+
+      - name: Checkout upstream mpv and apply JOC patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mpv_dir=android/buildscripts/deps/mpv
+          mkdir -p "$mpv_dir"
+          git -C "$mpv_dir" init -q
+          git -C "$mpv_dir" remote add origin https://github.com/mpv-player/mpv.git
+          git -C "$mpv_dir" fetch --depth 1 origin "$MPV_REF"
+          git -C "$mpv_dir" checkout --detach FETCH_HEAD
+          git -C "$mpv_dir" log -1 --format='%h %cd %s' --date=short
+          cp fork/files/audio/decode/* "$mpv_dir/audio/decode/"
+          python3 fork/tools/apply_edits.py "$mpv_dir"
+
+      - name: Restore Android native dependencies
+        id: dep-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: android/buildscripts/prefix/arm64
+          key: android-arm64-deps-${{ hashFiles('android/buildscripts/include/depinfo.sh') }}-v1
+
+      - name: Download native dependency sources
+        if: steps.dep-cache.outputs.cache-hit != 'true'
+        working-directory: android/buildscripts
+        env:
+          IN_CI: '1'
+        run: ./include/download-deps.sh
+
+      - name: Compile native dependencies (arm64 only)
+        if: steps.dep-cache.outputs.cache-hit != 'true'
+        working-directory: android/buildscripts
+        run: ./buildall.sh --arch arm64 --only-deps mpv
+
+      - name: Cache native dependencies
+        if: steps.dep-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: android/buildscripts/prefix/arm64
+          key: android-arm64-deps-${{ hashFiles('android/buildscripts/include/depinfo.sh') }}-v1
+
+      - name: Install JOC core into Android prefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp joc/build-android/libjoc_core.so android/buildscripts/prefix/arm64/lib/
+
+      - name: Enable JOC linking in mpv-android build script
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/buildscripts/scripts/mpv.sh')
+          s = p.read_text()
+          needle = '-Dmanpage-build=disabled'
+          if s.count(needle) != 1:
+              raise SystemExit('mpv-android build script has changed; adjust the Meson arguments')
+          s = s.replace(needle, needle + ' -Dgpl=false -Djoc-core-dir="$prefix_dir/lib"')
+          p.write_text(s)
+          PY
+
+      - name: Build Android libmpv.so
+        working-directory: android/buildscripts
+        run: ./buildall.sh --arch arm64 -n mpv
+
+      - name: Package Android shared libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          source android/buildscripts/include/depinfo.sh
+          ndk="$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}"
+          out=dist/arm64-v8a
+          mkdir -p "$out"
+          cp android/buildscripts/prefix/arm64/lib/libmpv.so "$out/"
+          cp joc/build-android/libjoc_core.so "$out/"
+          libcxx=$(find "$ndk/toolchains/llvm/prebuilt" \
+            -path '*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so' -print -quit)
+          test -n "$libcxx"
+          cp "$libcxx" "$out/"
+          test -s "$out/libmpv.so"
+          test -s "$out/libjoc_core.so"
+          readelf -h "$out/libmpv.so" | grep Machine
+          readelf -d "$out/libmpv.so" | grep NEEDED
+          readelf -d "$out/libmpv.so" | grep -F libjoc_core.so
+          readelf -d "$out/libjoc_core.so" | grep NEEDED
+          ls -lh "$out"
+
+      - name: Upload compiled Android libraries
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-ad-joc-android-arm64-v8a
+          path: dist/arm64-v8a/
+          if-no-files-found: error
+
+      - name: Upload JOC core even if mpv fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-joc-core-debug
+          path: joc/build-android/libjoc_core.so
+          if-no-files-found: ignore
