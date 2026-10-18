@@ -1,0 +1,22 @@
+name: drift
+
+# Checks that the integration still applies to the latest mpv, so a broken
+# anchor is noticed before a release build is attempted.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  latest-mpv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone latest mpv
+        run: |
+          git clone --depth 1 https://github.com/mpv-player/mpv.git mpv
+          git -C mpv log -1 --format='%h %cd %s' --date=short
+      - name: Apply ad_joc
+        run: |
+          cp fork/files/audio/decode/* mpv/audio/decode/
+          python3 fork/tools/apply_edits.py mpv

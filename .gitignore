@@ -1,0 +1,17 @@
+build/
+out/
+dist/
+*.log
+*.log.1
+*.zip
+*.wav
+HRTF/
+*.sofa
+*.jochrtf
+*.personalized_headphone
+joc-hrtf-cache/
+.vs/
+*.user
+__pycache__/
+*.pyc
+_parity/

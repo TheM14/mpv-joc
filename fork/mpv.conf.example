@@ -1,0 +1,28 @@
+# ad_joc: E-AC-3 JOC through the JustOneCacophony renderer.
+# Copy the lines you need into mpv.conf; all of them are ordinary mpv options.
+
+ad = joc
+
+# Binaural (stereo) output. On by default; "no" renders the speaker layout below.
+ad-joc-binaural = yes
+
+# HRTF input: SOFA, a Rosella .personalized_headphone, or a compiled .jochrtf.
+# The kind is detected from the file, so do not name it here.
+# Leave empty to search <mpv.exe>/HRTF/binaural.sofa, then the same names under
+# the mpv config dir.
+ad-joc-hrtf =
+
+# Speaker layout, used when ad-joc-binaural=no (and as the fallback when no
+# HRTF can be found; mpv then downmixes it to whatever the device wants).
+# 2.0 3.0 3.1 4.0 5.0 5.1 5.1.2 5.1.4 6.1 7.0 7.1 7.1.2 7.1.4 9.1.4 9.1.6
+ad-joc-layout = 7.1
+
+# Binaural rendering mode: near | mid | far.
+ad-joc-mode = mid
+
+# Extra gain in dB (-60 .. 12).
+ad-joc-gain-db = 0
+
+# Quantise the output to the renderer's 24-bit rule (the same truncation
+# the renderer's own frontends deliver in int24 mode). Off = plain float32.
+ad-joc-int24 = no

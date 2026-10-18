@@ -1,0 +1,25 @@
+# mpv-joc 配置示例：整段放进 mpv.conf 即可。
+#
+# 所有键都在 mpv 自己的 --script-opts 命名空间里，前缀 joc-。
+# 只有一行也可以：
+#   script-opts=joc-output=binaural,joc-hrtf-source=sofa
+#
+script-opts=joc-output=binaural,joc-hrtf-source=sofa,joc-mode=mid,joc-gain-db=0
+
+# 想让插件强制走 WASAPI（默认 auto：不动 mpv 的 ao 选择）：
+#   script-opts-append=joc-wasapi=yes
+# WASAPI 独占模式：
+#   script-opts-append=joc-exclusive=yes
+#
+# 扬声器布局示例（替换上面的 joc-output / joc-layout）：
+#   script-opts-append=joc-output=speaker
+#   script-opts-append=joc-layout=7.1
+#
+# 指定 HRTF 文件（默认找 <mpv>\HRTF\binaural.sofa）：
+#   script-opts-append=joc-hrtf=D:/hrtf/MyMeasurements.sofa
+#
+# 交付 24bit 定点：
+#   script-opts-append=joc-int24=yes
+#
+# 排错：把每个 HTTP 请求与跳转写进 joc_decoder.log
+#   script-opts-append=joc-verbose=yes

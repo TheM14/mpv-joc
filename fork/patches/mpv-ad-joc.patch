@@ -1,0 +1,136 @@
+diff --git a/filters/f_decoder_wrapper.c b/filters/f_decoder_wrapper.c
+index 2397c85..c0650b8 100644
+--- a/filters/f_decoder_wrapper.c
++++ b/filters/f_decoder_wrapper.c
+@@ -419,6 +419,20 @@ struct mp_decoder_list *audio_decoder_list(void)
+     return list;
+ }
+ 
++static bool decoder_name_listed(const char *list, const char *name)
++{
++    if (!list)
++        return false;
++    bstr sel = bstr0(list);
++    while (sel.len) {
++        bstr item;
++        bstr_split_tok(sel, ",", &item, &sel);
++        if (bstr_equals0(item, name))
++            return true;
++    }
++    return false;
++}
++
+ static bool reinit_decoder(struct priv *p)
+ {
+     if (p->decoder)
+@@ -464,6 +478,26 @@ static bool reinit_decoder(struct priv *p)
+                 }
+             }
+         }
++
++#if HAVE_JOC
++        /* E-AC-3 JOC through the JustOneCacophony core: --ad=joc renders the
++         * objects (binaural or a speaker layout) instead of letting FFmpeg
++         * downmix.  Opt-in, so default playback is untouched. */
++        if (driver == &ad_lavc && p->codec->codec &&
++            strcmp(p->codec->codec, "eac3") == 0 &&
++            decoder_name_listed(user_list, "joc"))
++        {
++            struct mp_decoder_list *joc_list =
++                talloc_zero(NULL, struct mp_decoder_list);
++            ad_joc.add_decoders(joc_list);
++            if (joc_list->num_entries) {
++                driver = &ad_joc;
++                list = joc_list;
++            } else {
++                talloc_free(joc_list);
++            }
++        }
++#endif
+     }
+ 
+     if (!driver)
+diff --git a/filters/f_decoder_wrapper.h b/filters/f_decoder_wrapper.h
+index b39d3f5..c668c4e 100644
+--- a/filters/f_decoder_wrapper.h
++++ b/filters/f_decoder_wrapper.h
+@@ -113,6 +113,7 @@ extern const struct mp_decoder_fns vd_lavc;
+ extern const struct mp_decoder_fns ad_lavc;
+ extern const struct mp_decoder_fns ad_spdif;
+ extern const struct mp_decoder_fns ad_dsd;
++extern const struct mp_decoder_fns ad_joc;
+ 
+ // Convenience wrapper for lavc based decoders. Treat lavc_state as private;
+ // init to all-0 on init and resets.
+diff --git a/meson.build b/meson.build
+index 4574234..45a39fb 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1771,10 +1771,22 @@ if rst2pdf.found()
+ endif
+ 
+ 
++# E-AC-3 JOC decoder (ad_joc): links the JustOneCacophony rendering core.
++joc_core_dir = get_option('joc-core-dir')
++if joc_core_dir != ''
++    joc_core = cc.find_library('joc_core', dirs: [joc_core_dir], required: true)
++    dependencies += joc_core
++    sources += files('audio/decode/ad_joc.c', 'audio/decode/joc_eac3.c')
++    joc_enabled = 1
++else
++    joc_enabled = 0
++endif
++
+ # Set config.h
+ conf_data = configuration_data()
+ conf_data.set_quoted('CONFIGURATION', meson.build_options().strip().replace('\\', '\\\\'))
+ conf_data.set_quoted('DEFAULT_OPTICAL_DEVICE', optical_device)
++conf_data.set('HAVE_JOC', joc_enabled)
+ 
+ # Loop over all features in the build, create a define and add them to config.h
+ feature_keys = []
+diff --git a/meson.options b/meson.options
+index 3211082..4f539b6 100644
+--- a/meson.options
++++ b/meson.options
+@@ -1,5 +1,6 @@
+ # booleans
+ option('gpl', type: 'boolean', value: true, description: 'GPL (version 2 or later) build')
++option('joc-core-dir', type: 'string', value: '', description: 'Directory holding joc_core.lib: builds the E-AC-3 JOC decoder (ad_joc)')
+ option('cplayer', type: 'boolean', value: true, description: 'mpv CLI player')
+ option('libmpv', type: 'boolean', value: true, description: 'libmpv library')
+ option('build-date', type: 'boolean', value: true, description: 'include compile timestamp in binary')
+diff --git a/options/options.c b/options/options.c
+index e8b590a..a575bd8 100644
+--- a/options/options.c
++++ b/options/options.c
+@@ -76,6 +76,7 @@ extern const struct m_sub_options demux_sbr_conf;
+ #endif
+ extern const struct m_sub_options vd_lavc_conf;
+ extern const struct m_sub_options ad_lavc_conf;
++extern const struct m_sub_options ad_joc_conf;
+ extern const struct m_sub_options hwdec_conf;
+ extern const struct m_sub_options input_config;
+ extern const struct m_sub_options encode_config;
+@@ -713,6 +714,9 @@ static const m_option_t mp_opts[] = {
+     {"", OPT_SUBSTRUCT(dec_wrapper, dec_wrapper_conf)},
+     {"", OPT_SUBSTRUCT(vd_lavc_params, vd_lavc_conf)},
+     {"ad-lavc", OPT_SUBSTRUCT(ad_lavc_params, ad_lavc_conf)},
++#if HAVE_JOC
++    {"ad-joc", OPT_SUBSTRUCT(ad_joc_params, ad_joc_conf)},
++#endif
+ 
+     {"", OPT_SUBSTRUCT(hwdec_opts, hwdec_conf)},
+ 
+diff --git a/options/options.h b/options/options.h
+index 26a7913..f88629c 100644
+--- a/options/options.h
++++ b/options/options.h
+@@ -394,6 +394,7 @@ typedef struct MPOpts {
+ 
+     struct vd_lavc_params *vd_lavc_params;
+     struct ad_lavc_params *ad_lavc_params;
++    struct ad_joc_params *ad_joc_params;
+ 
+     struct hwdec_opts *hwdec_opts;
+ 

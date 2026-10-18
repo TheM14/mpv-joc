@@ -1,0 +1,83 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      mpv_ref:
+        description: mpv branch, tag or commit
+        default: master
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-ffmpeg
+            mingw-w64-x86_64-luajit
+
+      - name: Clone mpv
+        shell: pwsh
+        run: |
+          $ref = "${ github.event.inputs.mpv_ref }}"
+          if (-not $ref) { $ref = "master" }
+          git clone --depth 1 --branch $ref https://github.com/mpv-player/mpv.git mpv
+          git -C mpv log -1 --format='%h %cd %s' --date=short
+
+      - name: Apply ad_joc
+        shell: pwsh
+        run: |
+          Copy-Item fork/files/audio/decode/* mpv/audio/decode/ -Force
+          python fork/tools/apply_edits.py mpv
+
+      - name: Build joc_core
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/TheM14/JustOneCacophony.git joc
+          cmake -S joc -B joc/build -A x64
+          cmake --build joc/build --config Release
+          $lib = Get-ChildItem joc/build -Recurse -Filter joc_core.lib | Select-Object -First 1
+          if (-not $lib) { throw "joc_core.lib not found" }
+          "JOC_CORE_DIR=$($lib.DirectoryName)" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Build mpv
+        shell: pwsh
+        run: |
+          $bash = "C:\msys64\usr\bin\bash.exe"
+          $dir = (Resolve-Path mpv).Path -replace '\\','/'
+          $core = $env:JOC_CORE_DIR -replace '\\','/'
+          $lines = @(
+            'set -e',
+            'export PATH=/mingw64/bin:/usr/bin:$PATH',
+            'export MSYSTEM=MINGW64',
+            "cd $dir",
+            "meson setup build --buildtype=release -Dgpl=false -Dlua=luajit -Djoc-core-dir=$core",
+            'ninja -C build'
+          )
+          ($lines -join [Environment]::NewLine) | & $bash -lc "cat > /tmp/b.sh && bash /tmp/b.sh"
+
+      - name: Bundle
+        shell: pwsh
+        run: |
+          $bash = "C:\msys64\usr\bin\bash.exe"
+          $dir = (Resolve-Path mpv).Path -replace '\\','/'
+          & $bash -lc "$env:GITHUB_WORKSPACE/fork/tools/bundle_dlls.sh '$dir/build'"
+          Copy-Item (Join-Path $env:JOC_CORE_DIR "joc_core.dll") mpv/build -Force
+          Copy-Item fork/mpv.conf.example mpv/build -Force
+          Compress-Archive -Path mpv/build/* -DestinationPath mpv-ad-joc.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mpv-ad-joc-windows
+          path: mpv-ad-joc.zip
