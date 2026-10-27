@@ -551,7 +551,11 @@ static const struct mp_filter_info ad_joc_filter = {
 
 /* mpv names layouts up to 7.1 itself; the renderer goes further (it is a Dolby
  * Atmos renderer, so 5.1.2 … 9.1.6 follow the usual speaker order).  Spell the
- * wider ones out as speaker lists so mpv knows which channel is which. */
+ * wider ones out as speaker lists so mpv knows which channel is which.
+ *
+ * The two 4.0 layouts are different speaker sets: Surround is a front trio plus a
+ * back-centre speaker, Quad is a front and a back pair.  "4.0" is the name the
+ * option used before they were told apart and still means the Surround layout. */
 static const struct {
     const char *name;
     const char *speakers;
@@ -559,7 +563,9 @@ static const struct {
     {"2.0",   "fl-fr"},
     {"3.0",   "fl-fr-fc"},
     {"3.1",   "fl-fr-fc-lfe"},
-    {"4.0",   "fl-fr-fc-bc"},
+    {"4.0",          "fl-fr-fc-bc"},
+    {"4.0 Surround", "fl-fr-fc-bc"},
+    {"4.0 Quad",     "fl-fr-bl-br"},
     {"5.0",   "fl-fr-fc-bl-br"},
     {"5.1",   "fl-fr-fc-lfe-bl-br"},
     {"5.1.2", "fl-fr-fc-lfe-bl-br-tfl-tfr"},

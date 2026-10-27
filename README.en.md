@@ -7,7 +7,7 @@ the engine and the settings are the same ones the upstream frontends
 the upstream project's command-line frontend uses, so the samples delivered to the player
 are **bit-identical**.
 
-* Output: binaural (HRTF) or a 2.0 – 7.1 speaker layout;
+* Output: binaural (HRTF) or a 2.0 – 9.1.6 speaker layout;
 * Output device: mpv's own audio output, i.e. WASAPI on Windows (optionally
   forced, optionally exclusive);
 * Configuration: mpv's own configuration file, with one `joc-*` option namespace;
@@ -84,7 +84,7 @@ ignored and reported in `joc_decoder.log`.
 |---|---|---|---|
 | `joc-enabled` | yes / no | yes | disable the plugin entirely |
 | `joc-output` | binaural / speaker | binaural | output form |
-| `joc-layout` | 2.0 3.1 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | speaker layout |
+| `joc-layout` | 2.0 3.1 "4.0 Surround" "4.0 Quad" 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | speaker layout; quote a name that has a space in it, and the old `4.0` still means `4.0 Surround` |
 | `joc-hrtf-source` | sofa / rosella | sofa | binaural HRTF input |
 | `joc-hrtf` | path | empty | empty: default name under `<plugin>\\HRTF\\` or `<plugin>\\..\\HRTF\\` |
 | `joc-mode` | near / mid / far | mid | binaural mode |

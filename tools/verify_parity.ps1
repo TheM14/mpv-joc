@@ -18,9 +18,13 @@ $log = Join-Path (Split-Path $Plugin) "joc_decoder.log"
 
 function Invoke-Capture([string]$options, [string]$output) {
     Remove-Item -Force $log -ErrorAction SilentlyContinue
+    # Start-Process joins the array with spaces and quotes nothing, so an option
+    # value with a space in it (a layout name such as "4.0 Surround") has to be
+    # quoted here or mpv would receive it as two arguments.
+    $script_opts = "joc-verbose=yes,joc-attach=no,joc-log=$log,$options"
     $arguments = @("--no-config", "--ao=null", "--vo=null", "--pause=yes",
-        "--script=$Plugin", "--script-opts=joc-verbose=yes,joc-attach=no,joc-log=$log,$options",
-        "--msg-level=all=info", $Media)
+        "--script=$Plugin", "--script-opts=`"$script_opts`"",
+        "--msg-level=all=info", "`"$Media`"")
     Start-Process -FilePath $mpv -ArgumentList $arguments -PassThru -WindowStyle Hidden | Out-Null
     $url = $null
     for ($i = 0; $i -lt 120; $i++) {
@@ -58,13 +62,16 @@ if ($Rosella -ne "") {
     & $Python (Join-Path $PSScriptRoot "compare_wav.py") $actual $reference
     if ($LASTEXITCODE -ne 0) { $failures++ }
 }
-Write-Output "=== speaker 7.1 float32 ==="
-$reference = Join-Path $WorkDir "reference.7.1.f32.wav"
-$actual = Join-Path $WorkDir "plugin.7.1.f32.wav"
-& $JocCli $Media --speaker-layout 7.1 --speaker-format float32 --speaker-output $reference | Out-Null
-Invoke-Capture "joc-output=speaker,joc-layout=7.1" $actual
-& $Python (Join-Path $PSScriptRoot "compare_wav.py") $actual $reference
-if ($LASTEXITCODE -ne 0) { $failures++ }
+foreach ($layout in @("7.1", "4.0 Surround", "4.0 Quad")) {
+    Write-Output "=== speaker $layout float32 ==="
+    $tag = $layout -replace " ", "_"
+    $reference = Join-Path $WorkDir "reference.$tag.f32.wav"
+    $actual = Join-Path $WorkDir "plugin.$tag.f32.wav"
+    & $JocCli $Media --speaker-layout $layout --speaker-format float32 --speaker-output $reference | Out-Null
+    Invoke-Capture "joc-output=speaker,joc-layout=$layout" $actual
+    & $Python (Join-Path $PSScriptRoot "compare_wav.py") $actual $reference
+    if ($LASTEXITCODE -ne 0) { $failures++ }
+}
 
 if ($failures -ne 0) { throw "$failures comparison(s) failed" }
 Write-Output "all comparisons passed"

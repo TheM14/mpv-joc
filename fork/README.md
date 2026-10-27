@@ -136,7 +136,7 @@ ad-joc-gain-db = 0
 |---|---|---|
 | `--ad-joc-binaural` | yes / no | yes |
 | `--ad-joc-hrtf` | SOFA / Rosella / `.jochrtf` 路径 | 空（自动搜索） |
-| `--ad-joc-layout` | `2.0` `3.0` `3.1` `4.0` `5.0` `5.1` `5.1.2` `5.1.4` `6.1` `7.0` `7.1` `7.1.2` `7.1.4` `9.1.4` `9.1.6` | 7.1 |
+| `--ad-joc-layout` | `2.0` `3.1` `4.0 Surround` `4.0 Quad` `5.1` `7.1` `5.1.2` `5.1.4` `7.1.2` `7.1.4` `9.1.4` `9.1.6`（旧值 `4.0` 仍按 `4.0 Surround`） | 7.1 |
 | `--ad-joc-mode` | near / far / mid | mid |
 | `--ad-joc-gain-db` | -60 … 12 | 0 |
 | `--ad-joc-int24` | yes / no | no |

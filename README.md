@@ -6,7 +6,7 @@ mpv C 插件（cplugins）。它把 E-AC-3 JOC 码流里的对象音频交给
 上游项目的命令行前端相同的引擎、相同的设置、相同的 `joc_core.dll`，
 因此同一个文件在两个前端上得到的采样**逐字节一致**。
 
-- 输出：双耳（HRTF）或 2.0 – 7.1 的扬声器布局；
+- 输出：双耳（HRTF）或 2.0 – 9.1.6 的扬声器布局；
 - 输出设备：照常走 mpv 的音频输出，Windows 上即 WASAPI（可强制 `ao=wasapi`、可开独占）；
 - 配置：mpv 自己的配置文件，新增 `joc-*` 这一个选项命名空间（见下）；
 - 输入：裸流 `.eac3` / `.ec3`，或 MP4 / Matroska 里的 E-AC-3 JOC 轨（有视频也照常播）；
@@ -98,7 +98,7 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 |---|---|---|---|
 | `joc-enabled` | yes / no | yes | 关掉后插件完全不介入 |
 | `joc-output` | binaural / speaker | binaural | 输出形式 |
-| `joc-layout` | 2.0 3.1 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用 |
+| `joc-layout` | 2.0 3.1 "4.0 Surround" "4.0 Quad" 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用。带空格的布局名整体加引号；旧值 `4.0` 仍按 `4.0 Surround` 处理 |
 | `joc-hrtf-source` | sofa / rosella | sofa | 双耳用哪种 HRTF 输入 |
 | `joc-hrtf` | 路径 | 空 | 空则用 `<插件目录>\\HRTF\\` 或 `<插件目录>\\..\\HRTF\\` 下的默认文件名 |
 | `joc-mode` | near / mid / far | mid | 双耳模式 |

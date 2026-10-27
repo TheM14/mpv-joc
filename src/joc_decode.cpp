@@ -354,10 +354,14 @@ private:
     HANDLE handle_ = INVALID_HANDLE_VALUE;
 };
 
-const char* const kLayouts[] = {"2.0",   "3.0",   "3.1",   "4.0",   "5.0",   "5.1",  "5.1.2",
-                                "5.1.4", "6.1",   "7.0",   "7.1",   "7.1.2", "7.1.4", "9.1.4",
-                                "9.1.6"};
-const unsigned kLayoutChannels[] = {2, 3, 4, 4, 5, 6, 8, 10, 7, 7, 8, 10, 12, 14, 16};
+// The layouts the core accepts, with their channel counts.  "4.0" is the old
+// spelling of 4.0 Surround and is resolved to it before the core is asked, but the
+// count table keeps it too so an old configuration still logs its real width.
+const char* const kLayouts[] = {"2.0",   "3.1",
+                                "4.0 Surround", "4.0 Quad", "4.0",
+                                "5.1",   "7.1",   "5.1.2",        "5.1.4",
+                                "7.1.2", "7.1.4", "9.1.4",        "9.1.6"};
+const unsigned kLayoutChannels[] = {2, 4, 4, 4, 4, 6, 8, 8, 10, 10, 12, 14, 16};
 
 // Every ffmpeg child writes its diagnostics next to the component rather than into
 // whatever working directory the host process happens to have; separate files so
