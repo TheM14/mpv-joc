@@ -91,12 +91,14 @@ Android（`libmpv.so`）的可行性调研见 [docs/android.md](docs/android.md)
 
 ## 构建（Windows / MSYS2）
 
-需要 msys2 的 mingw64 环境（本机验证版本：gcc 16.2.0、ffmpeg 9.0.2、meson 1.12.1、ninja 1.13.2）：
+需要 msys2 的 **UCRT64** 环境（本机验证版本：gcc 16.2.0、ffmpeg 9.0.2、meson 1.12.1、ninja 1.13.2）。
+LuaJIT 只发布在 ucrt64 / clang64，MINGW64 环境里已经没有这个包了，而 mpv 的脚本需要 LuaJIT 或
+Lua 5.1/5.2：
 
 ```bash
-pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-meson \
-    mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-ffmpeg \
-    mingw-w64-x86_64-luajit
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-meson \
+    mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-ffmpeg \
+    mingw-w64-ucrt-x86_64-luajit
 ```
 
 把本目录的 `files/` 覆盖到 mpv 源码树，然后：
@@ -104,7 +106,7 @@ pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-meson \
 ```bash
 cd mpv-src
 git apply /path/to/patches/mpv-ad-joc.patch
-export PATH=/mingw64/bin:$PATH
+export PATH="${MINGW_PREFIX:-/ucrt64}/bin:$PATH"
 meson setup build --buildtype=release -Dgpl=false -Dlua=luajit \
     -Djoc-core-dir=/c/path/to/joc_core_import_lib_dir
 ninja -C build
