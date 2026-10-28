@@ -62,7 +62,8 @@ if ($Rosella -ne "") {
     & $Python (Join-Path $PSScriptRoot "compare_wav.py") $actual $reference
     if ($LASTEXITCODE -ne 0) { $failures++ }
 }
-foreach ($layout in @("7.1", "4.0 Surround", "4.0 Quad")) {
+foreach ($layout in @("2.0", "3.1", "4.0", "5.1", "7.1", "5.1.2", "5.1.4", "7.1.2",
+                       "7.1.4", "9.1.4", "9.1.6")) {
     Write-Output "=== speaker $layout float32 ==="
     $tag = $layout -replace " ", "_"
     $reference = Join-Path $WorkDir "reference.$tag.f32.wav"

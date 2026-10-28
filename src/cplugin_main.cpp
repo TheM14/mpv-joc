@@ -395,10 +395,9 @@ struct Plugin {
 
         auto created = std::make_shared<Stream>();
         created->source = source;
-        const std::string mask_layout = (config.output == 0) ? "2.0" : config.layout;
         created->header = joc_mpv::wav_header(
             source->channels(), source->bits_per_sample(),
-            joc_mpv::channel_mask(mask_layout, source->channels()), source->data_bytes());
+            joc_mpv::channel_mask(source->channels()), source->data_bytes());
         created->total_bytes = created->header.size() + source->data_bytes();
         const double per_write = config.chunk_seconds * 48000.0 *
                                  static_cast<double>(source->bytes_per_frame());

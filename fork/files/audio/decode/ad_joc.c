@@ -549,34 +549,26 @@ static const struct mp_filter_info ad_joc_filter = {
     .destroy = ad_joc_destroy,
 };
 
-/* mpv names layouts up to 7.1 itself; the renderer goes further (it is a Dolby
- * Atmos renderer, so 5.1.2 … 9.1.6 follow the usual speaker order).  Spell the
- * wider ones out as speaker lists so mpv knows which channel is which.
- *
- * The two 4.0 layouts are different speaker sets: Surround is a front trio plus a
- * back-centre speaker, Quad is a front and a back pair.  "4.0" is the name the
- * option used before they were told apart and still means the Surround layout. */
+/* The layouts the core renders, with the channel order it writes them in, spelled
+ * with mpv's speaker names.  The order is per channel and is not the order of a
+ * WAVE channel mask: 7.1 and up write the side pair before the rear pair, so mpv
+ * names up to 7.1 are not used as they are.  The core's 4.0 is the quad layout
+ * (front and back pair). */
 static const struct {
     const char *name;
     const char *speakers;
 } layout_names[] = {
     {"2.0",   "fl-fr"},
-    {"3.0",   "fl-fr-fc"},
     {"3.1",   "fl-fr-fc-lfe"},
-    {"4.0",          "fl-fr-fc-bc"},
-    {"4.0 Surround", "fl-fr-fc-bc"},
-    {"4.0 Quad",     "fl-fr-bl-br"},
-    {"5.0",   "fl-fr-fc-bl-br"},
+    {"4.0",   "fl-fr-bl-br"},
     {"5.1",   "fl-fr-fc-lfe-bl-br"},
-    {"5.1.2", "fl-fr-fc-lfe-bl-br-tfl-tfr"},
+    {"7.1",   "fl-fr-fc-lfe-sl-sr-bl-br"},
+    {"5.1.2", "fl-fr-fc-lfe-bl-br-tsl-tsr"},
     {"5.1.4", "fl-fr-fc-lfe-bl-br-tfl-tfr-tbl-tbr"},
-    {"6.1",   "fl-fr-fc-lfe-bc-sl-sr"},
-    {"7.0",   "fl-fr-fc-bl-br-sl-sr"},
-    {"7.1",   "fl-fr-fc-lfe-bl-br-sl-sr"},
-    {"7.1.2", "fl-fr-fc-lfe-bl-br-sl-sr-tfl-tfr"},
-    {"7.1.4", "fl-fr-fc-lfe-bl-br-sl-sr-tfl-tfr-tbl-tbr"},
-    {"9.1.4", "fl-fr-fc-lfe-bl-br-sl-sr-wl-wr-tfl-tfr-tbl-tbr"},
-    {"9.1.6", "fl-fr-fc-lfe-bl-br-sl-sr-wl-wr-tfl-tfr-tsl-tsr-tbl-tbr"},
+    {"7.1.2", "fl-fr-fc-lfe-sl-sr-bl-br-tsl-tsr"},
+    {"7.1.4", "fl-fr-fc-lfe-sl-sr-bl-br-tfl-tfr-tbl-tbr"},
+    {"9.1.4", "fl-fr-fc-lfe-sl-sr-bl-br-wl-wr-tfl-tfr-tbl-tbr"},
+    {"9.1.6", "fl-fr-fc-lfe-sl-sr-bl-br-wl-wr-tfl-tfr-tsl-tsr-tbl-tbr"},
 };
 
 static bool layout_chmap(struct mp_chmap *chmap, const char *layout, int channels)
@@ -752,6 +744,8 @@ static struct mp_decoder *create(struct mp_filter *parent,
     struct priv *p = da->priv;
     struct ad_joc_params *opts = mp_get_config_group(p, da->global, &ad_joc_conf);
     bool binaural = opts->binaural;
+    /* The layout name the core is asked for. */
+    const char *layout = opts->layout;
     char *hrtf_path = NULL;
     enum hrtf_kind hrtf_kind = HRTF_UNKNOWN;
     if (binaural) {
@@ -820,7 +814,7 @@ static struct mp_decoder *create(struct mp_filter *parent,
             cfg.hrtf_cache_policy = 1;
         }
     } else {
-        cfg.speaker_layout_name = opts->layout;
+        cfg.speaker_layout_name = layout;
     }
     p->cfg = cfg;
     if (joc_stream_create(&cfg, &p->stream) != JOC_OK) {
@@ -842,8 +836,8 @@ static struct mp_decoder *create(struct mp_filter *parent,
     struct mp_chmap chmap;
     if (binaural) {
         mp_chmap_from_channels(&chmap, 2);
-    } else if (!layout_chmap(&chmap, opts->layout, channels)) {
-        MP_ERR(da, "unknown speaker layout '%s'\n", opts->layout);
+    } else if (!layout_chmap(&chmap, layout, channels)) {
+        MP_ERR(da, "unknown speaker layout '%s'\n", layout);
         talloc_free(da);
         return NULL;
     }
@@ -862,7 +856,7 @@ static struct mp_decoder *create(struct mp_filter *parent,
     p->int24 = opts->int24;
     codec->codec_desc = "E-AC-3 JOC (joc_core renderer)";
     MP_VERBOSE(da, "renderer: %s, %d channel(s)%s%s\n",
-               binaural ? "binaural" : opts->layout, p->out_channels,
+               binaural ? "binaural" : layout, p->out_channels,
                binaural ? ", hrtf: " : "", binaural ? hrtf_path : "");
     if (p->int24)
         MP_INFO(da, "int24: quantising the output to the renderer's 24-bit rule\n");

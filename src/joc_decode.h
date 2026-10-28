@@ -120,9 +120,6 @@ std::string component_directory();
 // component directory cannot be determined.
 std::string resolve_hrtf_file(const Settings& settings);
 
-// Every layout the core accepts, in the order a settings page should list them.
-const char* const* speaker_layouts(std::size_t* count);
-
 // Result of examining a file without rendering anything.
 struct FileProbe {
     bool readable = false;

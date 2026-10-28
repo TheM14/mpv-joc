@@ -354,14 +354,26 @@ private:
     HANDLE handle_ = INVALID_HANDLE_VALUE;
 };
 
-// The layouts the core accepts, with their channel counts.  "4.0" is the old
-// spelling of 4.0 Surround and is resolved to it before the core is asked, but the
-// count table keeps it too so an old configuration still logs its real width.
-const char* const kLayouts[] = {"2.0",   "3.1",
-                                "4.0 Surround", "4.0 Quad", "4.0",
-                                "5.1",   "7.1",   "5.1.2",        "5.1.4",
-                                "7.1.2", "7.1.4", "9.1.4",        "9.1.6"};
-const unsigned kLayoutChannels[] = {2, 4, 4, 4, 4, 6, 8, 8, 10, 10, 12, 14, 16};
+// The layouts the core accepts, with their channel counts.  The counts have to
+// stay in step with the core's table.
+struct LayoutEntry {
+    const char* name;
+    unsigned channels;
+};
+
+const LayoutEntry kLayouts[] = {
+    {"2.0", 2},
+    {"3.1", 4},
+    {"4.0", 4},
+    {"5.1", 6},
+    {"7.1", 8},
+    {"5.1.2", 8},
+    {"5.1.4", 10},
+    {"7.1.2", 10},
+    {"7.1.4", 12},
+    {"9.1.4", 14},
+    {"9.1.6", 16},
+};
 
 // Every ffmpeg child writes its diagnostics next to the component rather than into
 // whatever working directory the host process happens to have; separate files so
@@ -410,14 +422,9 @@ std::int64_t sample_of_seconds(double seconds) {
 
 }  // namespace
 
-const char* const* speaker_layouts(std::size_t* count) {
-    if (count != nullptr) *count = sizeof(kLayouts) / sizeof(kLayouts[0]);
-    return kLayouts;
-}
-
 unsigned speaker_channels(const std::string& layout) {
-    for (std::size_t i = 0; i < sizeof(kLayouts) / sizeof(kLayouts[0]); ++i) {
-        if (layout == kLayouts[i]) return kLayoutChannels[i];
+    for (const LayoutEntry& entry : kLayouts) {
+        if (layout == entry.name) return entry.channels;
     }
     return 0;
 }

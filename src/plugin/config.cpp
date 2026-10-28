@@ -29,28 +29,16 @@ bool truthy(const std::string& value) {
 }
 
 // The layout names the renderer accepts, in the order its reference lists them.
-const char* const kLayouts[] = {"2.0",   "3.1",   "4.0 Surround", "4.0 Quad",
-                                "5.1",   "7.1",   "5.1.2",        "5.1.4",
-                                "7.1.2", "7.1.4", "9.1.4",        "9.1.6"};
-
-// "4.0" is the spelling the option had before the two 4.0 layouts were told
-// apart; it has always meant the layout now called 4.0 Surround.
-std::string canonical_layout(const std::string& layout) {
-    return layout == "4.0" ? "4.0 Surround" : layout;
-}
+const char* const kLayouts[] = {"2.0",   "3.1",   "4.0",   "5.1",   "7.1",   "5.1.2",
+                                "5.1.4", "7.1.2", "7.1.4", "9.1.4", "9.1.6"};
 
 }  // namespace
-
-const char* layout_list() {
-    return "2.0, 3.1, 4.0 Surround, 4.0 Quad, 5.1, 7.1, 5.1.2, 5.1.4, 7.1.2, 7.1.4, "
-           "9.1.4, 9.1.6";
-}
 
 bool valid_layout(const std::string& layout) {
     for (const char* name : kLayouts) {
         if (layout == name) return true;
     }
-    return layout == "4.0";
+    return false;
 }
 
 Config parse_config(const std::string& script_opts, std::string* warnings) {
@@ -91,7 +79,7 @@ Config parse_config(const std::string& script_opts, std::string* warnings) {
             }
         } else if (key == "joc-layout") {
             if (valid_layout(value)) {
-                config.layout = canonical_layout(value);
+                config.layout = value;
             } else {
                 unsupported(key + "=" + value);
             }

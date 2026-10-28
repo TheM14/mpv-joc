@@ -84,7 +84,7 @@ ignored and reported in `joc_decoder.log`.
 |---|---|---|---|
 | `joc-enabled` | yes / no | yes | disable the plugin entirely |
 | `joc-output` | binaural / speaker | binaural | output form |
-| `joc-layout` | 2.0 3.1 "4.0 Surround" "4.0 Quad" 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | speaker layout; quote a name that has a space in it, and the old `4.0` still means `4.0 Surround` |
+| `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | speaker layout; used only with `speaker` |
 | `joc-hrtf-source` | sofa / rosella | sofa | binaural HRTF input |
 | `joc-hrtf` | path | empty | empty: default name under `<plugin>\\HRTF\\` or `<plugin>\\..\\HRTF\\` |
 | `joc-mode` | near / mid / far | mid | binaural mode |
@@ -105,9 +105,51 @@ ignored and reported in `joc_decoder.log`.
 | `joc-verbose` | yes / no | no | log every HTTP request and reposition |
 | `joc-log` | path | empty | log file; empty: `<mpv config dir>\\joc_decoder.log` |
 
-Layouts wider than 7.1 cannot reach a WASAPI endpoint (8 channels maximum), so
-`9.1.4` / `9.1.6` are delivered without a channel mask and will normally not map
-correctly; use `7.1.4` or below.
+## Speaker layouts and channel order
+
+`joc-layout` accepts the eleven layouts below, and the PCM the plugin hands to mpv follows the order
+in the table:
+
+| Layout | Channel order |
+|---|---|
+| 2.0 | L, R |
+| 3.1 | L, R, C, LFE |
+| 4.0 | L, R, Lrs, Rrs |
+| 5.1 | L, R, C, LFE, Ls, Rs |
+| 7.1 | L, R, C, LFE, Ls, Rs, Lrs, Rrs |
+| 5.1.2 | L, R, C, LFE, Ls, Rs, Ltm, Rtm |
+| 5.1.4 | L, R, C, LFE, Ls, Rs, Ltf, Rtf, Ltr, Rtr |
+| 7.1.2 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Ltm, Rtm |
+| 7.1.4 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Ltf, Rtf, Ltr, Rtr |
+| 9.1.4 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Lw, Rw, Ltf, Rtf, Ltr, Rtr |
+| 9.1.6 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Lw, Rw, Ltf, Rtf, Ltm, Rtm, Ltr, Rtr |
+
+`4.0` is the quad layout this project adds (the traditional `FL FR BL BR`, here `L R Lrs Rrs`); it is
+not part of the Dolby layout set. Every other layout and channel order follows the Dolby
+specifications.
+
+The plugin serves the renderer's output to mpv as an ordinary WAV track over loopback HTTP. That WAV
+uses `WAVE_FORMAT_EXTENSIBLE` with `dwChannelMask = 0`: it declares no Windows speaker positions, and
+the PCM order is exactly the table above, never rearranged into mask-bit order. **The plugin changes
+none of mpv's channel-layout settings**, and it does not affect mpv's native layout support for any
+other audio format.
+
+With no mask, FFmpeg gives the stream a default layout for its channel count (4 channels become
+`fl-fr-fc-bc`, 8 become `fl-fr-fc-lfe-bl-br-sl-sr`, wider counts stay unspecified), and mpv reads the
+channels from that. In other words, the loopback WAV only guarantees that the PCM matches the table
+above channel for channel; the speaker positions follow mpv's own default layout.
+
+To have mpv play the real layout, use the `ad_joc` decoder: it sets the channel map per frame (in the
+order of the table above), so mpv's filter chain, remixing and the WASAPI mask all use the right
+positions. An `ao=pcm` capture is byte-identical to `joc_cli`'s WAV.
+
+Mapping the channels to a device (WASAPI shared/exclusive, ASIO, HDMI) is up to the user; this
+project guarantees the content and numbering of each PCM channel, not that a downstream player or
+device recognises Dolby speaker positions on its own. A WASAPI endpoint takes at most eight channels,
+so `9.1.4` / `9.1.6` normally need ASIO or an external renderer.
+
+`joc-layout` accepts only the eleven names in the table; anything else is reported and the default
+`7.1` is kept.
 
 ## How it works
 
@@ -122,7 +164,7 @@ mpv — video and subtitles as usual
                      ▲ E-AC-3 syncframes + core PCM from ffmpeg
                      │
          ┌───────────┴────────────┐
-         │  rendered as WAV (float32 / int24, with a channel mask)
+         │  rendered as WAV (float32 / int24, dwChannelMask = 0)
          │  served by an in-process loopback HTTP endpoint with Range support
          └───────────┬────────────┘
                      ▼

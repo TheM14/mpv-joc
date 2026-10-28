@@ -5,11 +5,10 @@
 
 namespace joc_mpv {
 
-// Channel mask for a layout the renderer can produce.  The renderer emits its
-// channels in the standard WAVE order for that layout, so a WAVE_FORMAT_EXTENSIBLE
-// mask tells mpv exactly which speaker each channel belongs to.  Layouts wider
-// than 7.1 return 0 (no mask): they cannot reach a WASAPI endpoint anyway.
-std::uint32_t channel_mask(const std::string& layout, unsigned channels);
+// Channel mask for the served WAV.  The PCM follows the renderer's channel order,
+// which no WAVE mask describes, so anything wider than stereo is declared with no
+// speaker positions at all (mask 0).  Two channels are FL/FR in either definition.
+std::uint32_t channel_mask(unsigned channels);
 
 // 68-byte WAVE_FORMAT_EXTENSIBLE header, or a 104-byte RF64 header when the data
 // chunk would not fit a 32-bit size.

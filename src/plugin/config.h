@@ -50,7 +50,6 @@ struct Config {
 // keys are ignored so an mpv.conf written for a newer build still loads.
 Config parse_config(const std::string& script_opts, std::string* warnings);
 
-const char* layout_list();
 bool valid_layout(const std::string& layout);
 
 }  // namespace joc_mpv

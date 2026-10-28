@@ -7,17 +7,6 @@ namespace {
 
 constexpr std::uint32_t kFl = 0x00000001u;
 constexpr std::uint32_t kFr = 0x00000002u;
-constexpr std::uint32_t kFc = 0x00000004u;
-constexpr std::uint32_t kLfe = 0x00000008u;
-constexpr std::uint32_t kBl = 0x00000010u;
-constexpr std::uint32_t kBr = 0x00000020u;
-constexpr std::uint32_t kBc = 0x00000100u;
-constexpr std::uint32_t kSl = 0x00000200u;
-constexpr std::uint32_t kSr = 0x00000400u;
-constexpr std::uint32_t kTfl = 0x00001000u;
-constexpr std::uint32_t kTfr = 0x00004000u;
-constexpr std::uint32_t kTbl = 0x00008000u;
-constexpr std::uint32_t kTbr = 0x00020000u;
 
 void put_u16(std::string* out, std::uint16_t value) {
     char bytes[2];
@@ -65,29 +54,10 @@ void put_fmt(std::string* out, unsigned channels, unsigned bits, std::uint32_t m
 
 }  // namespace
 
-std::uint32_t channel_mask(const std::string& layout, unsigned channels) {
-    if (layout == "2.0") return kFl | kFr;
-    if (layout == "3.1") return kFl | kFr | kFc | kLfe;
-    // The two 4.0 layouts differ in their speaker set, not only in their name:
-    // Surround has a front trio and one back-centre speaker, Quad has a front and
-    // a back pair and neither centre nor LFE.  "4.0" is the old name of the former.
-    if (layout == "4.0 Surround" || layout == "4.0") return kFl | kFr | kFc | kBc;
-    if (layout == "4.0 Quad") return kFl | kFr | kBl | kBr;
-    if (layout == "5.1") return kFl | kFr | kFc | kLfe | kBl | kBr;
-    if (layout == "7.1") return kFl | kFr | kFc | kLfe | kBl | kBr | kSl | kSr;
-    if (layout == "5.1.2") return kFl | kFr | kFc | kLfe | kBl | kBr | kTfl | kTfr;
-    if (layout == "5.1.4") {
-        return kFl | kFr | kFc | kLfe | kBl | kBr | kTfl | kTfr | kTbl | kTbr;
-    }
-    if (layout == "7.1.2") {
-        return kFl | kFr | kFc | kLfe | kBl | kBr | kSl | kSr | kTfl | kTfr;
-    }
-    if (layout == "7.1.4") {
-        return kFl | kFr | kFc | kLfe | kBl | kBr | kSl | kSr | kTfl | kTfr | kTbl | kTbr;
-    }
-    // 2-channel binaural output is plain stereo.
-    if (channels == 2) return kFl | kFr;
-    return 0;
+std::uint32_t channel_mask(unsigned channels) {
+    // No mask above stereo: the channel order is the renderer's, and a WAVE mask
+    // would claim a different one.  Two channels are plain stereo.
+    return channels == 2 ? (kFl | kFr) : 0;
 }
 
 std::string wav_header(unsigned channels, unsigned bits_per_sample, std::uint32_t mask,

@@ -98,7 +98,7 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 |---|---|---|---|
 | `joc-enabled` | yes / no | yes | 关掉后插件完全不介入 |
 | `joc-output` | binaural / speaker | binaural | 输出形式 |
-| `joc-layout` | 2.0 3.1 "4.0 Surround" "4.0 Quad" 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用。带空格的布局名整体加引号；旧值 `4.0` 仍按 `4.0 Surround` 处理 |
+| `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用 |
 | `joc-hrtf-source` | sofa / rosella | sofa | 双耳用哪种 HRTF 输入 |
 | `joc-hrtf` | 路径 | 空 | 空则用 `<插件目录>\\HRTF\\` 或 `<插件目录>\\..\\HRTF\\` 下的默认文件名 |
 | `joc-mode` | near / mid / far | mid | 双耳模式 |
@@ -119,8 +119,44 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 | `joc-verbose` | yes / no | no | 在日志里记录每个 HTTP 请求与跳转 |
 | `joc-log` | 路径 | 空 | 日志文件；空则写 `<mpv 配置目录>\\joc_decoder.log` |
 
-扬声器布局与 WASAPI：WASAPI 端点最多 8 个声道，所以 `9.1.4` / `9.1.6` 这类布局在本插件里
-只能用没有声道掩码的普通 WAV 交付，实际设备上通常拿不到正确映射——需要时请用 `7.1.4` 及以下。
+## 扬声器布局与声道顺序
+
+`joc-layout` 只接受下表 11 个布局，插件交给 mpv 的 PCM 顺序就是表里的顺序：
+
+| 布局 | 声道顺序 |
+|---|---|
+| 2.0 | L, R |
+| 3.1 | L, R, C, LFE |
+| 4.0 | L, R, Lrs, Rrs |
+| 5.1 | L, R, C, LFE, Ls, Rs |
+| 7.1 | L, R, C, LFE, Ls, Rs, Lrs, Rrs |
+| 5.1.2 | L, R, C, LFE, Ls, Rs, Ltm, Rtm |
+| 5.1.4 | L, R, C, LFE, Ls, Rs, Ltf, Rtf, Ltr, Rtr |
+| 7.1.2 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Ltm, Rtm |
+| 7.1.4 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Ltf, Rtf, Ltr, Rtr |
+| 9.1.4 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Lw, Rw, Ltf, Rtf, Ltr, Rtr |
+| 9.1.6 | L, R, C, LFE, Ls, Rs, Lrs, Rrs, Lw, Rw, Ltf, Rtf, Ltm, Rtm, Ltr, Rtr |
+
+`4.0` 是本项目补充的 Quad 布局（传统 Quad 的 `FL FR BL BR`），声道为 `L R Lrs Rrs`，不在杜比
+文档的布局列表里；除它以外的布局及声道顺序均依据杜比相关规范定义。
+
+插件通过回环 HTTP 把渲染结果作为一条普通 WAV 轨交给 mpv。这个 WAV 使用
+`WAVE_FORMAT_EXTENSIBLE` 且 `dwChannelMask = 0`：它不声明 Windows 扬声器位置，PCM 顺序严格按
+上表，不按掩码位序重排。**插件不改动 mpv 的任何声道布局设置**，也不影响 mpv 对其他音频格式的
+原生布局支持。
+
+没有掩码时 FFmpeg 会按声道数给这条流套一个默认布局（4 声道是 `fl-fr-fc-bc`，8 声道是
+`fl-fr-fc-lfe-bl-br-sl-sr`，更多声道保持未指定），mpv 据此解释它的声道。也就是说，回环 WAV 这条
+路只保证“PCM 逐声道与上表一致”；扬声器位置取决于 mpv 自己的默认布局。
+
+要让 mpv 按真实布局播放，请用 `ad_joc` 解码器：它逐帧设置 chmap（顺序与上表一致），mpv 的滤镜
+链、重混与 WASAPI 掩码都按正确位置处理。实测 `ao=pcm` 输出与 `joc_cli` 的 WAV 逐字节一致。
+
+设备端的输出映射（WASAPI 共享/独占、ASIO、HDMI）仍由用户按声道编号自行确认；本项目保证各 PCM
+声道的内容和编号符合上表，不保证下游播放器或设备自动识别杜比扬声器位置。WASAPI 端点最多 8 个
+声道，`9.1.4` / `9.1.6` 这类布局通常需要 ASIO 或外部渲染器。
+
+`joc-layout` 只接受上表 11 个名字；其它值记一条警告并保持默认 `7.1`。
 
 ## 实现
 
@@ -134,7 +170,7 @@ mpv ── 视频/字幕照常
                      ▲ E-AC-3 同步帧 + ffmpeg 解出的核心 PCM
                      │
          ┌───────────┴────────────┐
-         │  渲染成 WAV（float32 / int24，带声道掩码）
+         │  渲染成 WAV（float32 / int24，dwChannelMask = 0）
          │  由进程内的 loopback HTTP 端点提供，支持 Range
          └───────────┬────────────┘
                      ▼
@@ -147,7 +183,7 @@ WASAPI 输出和跳转都不用改。
 启动顺序：`start-file` 时就开始探测并创建渲染器（此时 mpv 还在打开文件），同时把文件自带的
 音轨静音；`file-loaded` 时把渲染轨 `audio-add ... select` 进去，然后恢复原来的静音状态。
 探测判定不是 JOC 的输入立刻恢复，不会留下静音（带 E-AC-3 轨但不是 JOC 的容器会经历一次
-约 100 ms 的 ffmpeg 探测，期间是静音；`joc-mute-until-ready=no` 可关掉这一行为）。实测（30 秒 7.1.4 素材）：冷启动约 0.6 秒、
+约 100 ms 的 ffmpeg 探测，期间是静音；`joc-mute-until-ready=no` 可关掉这一行为）。实测：冷启动约 0.6 秒、
 HRTF 编译结果命中磁盘缓存后约 0.37 秒；这段是静音而不是普通 bed，且 mpv 在切轨时会暂停音频时钟，
 所以不会跳过内容。插件只在请求的字节位置和渲染位置不一致时让渲染器重新进入码流
 （与组件的 seek 策略相同：目标帧减去 64 帧预滚，再丢掉目标之前的输出）。
@@ -173,7 +209,7 @@ AVPacket，所以不需要改 FFmpeg，内核仍是 `joc_core.dll`。这条路�
 ## 一致性验证
 
 `tools/verify_parity.ps1` 用 `joc_cli` 生成参考 WAV，再从插件取回实际交付的字节逐字节比较。
-本机（mpv v0.41.0，FFmpeg 8.0，30 秒 7.1.4 JOC 素材）的结果：
+本机（mpv v0.41.0，FFmpeg 8.0）的结果：
 
 | 组合 | 结果 |
 |---|---|

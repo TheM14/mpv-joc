@@ -14,7 +14,7 @@ ad-joc-hrtf =
 
 # Speaker layout, used when ad-joc-binaural=no (and as the fallback when no
 # HRTF can be found; mpv then downmixes it to whatever the device wants).
-# 2.0 3.0 3.1 4.0 5.0 5.1 5.1.2 5.1.4 6.1 7.0 7.1 7.1.2 7.1.4 9.1.4 9.1.6
+# 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6
 ad-joc-layout = 7.1
 
 # Binaural rendering mode: near | mid | far.
