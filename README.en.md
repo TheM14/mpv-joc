@@ -216,9 +216,9 @@ FFmpeg 8.0, a 30 s 7.1.4 JOC clip):
 
 | Case | Result |
 |---|---|
-| binaural float32 (SOFA) | 1,440,768 samples bit-identical |
-| binaural int24 (Rosella) | 1,440,768 samples bit-identical |
-| speaker 7.1 float32 | 1,440,768 samples bit-identical |
+| binaural float32 (SOFA) | bit-identical |
+| binaural int24 (Rosella) | bit-identical |
+| speaker 7.1 float32 | bit-identical |
 
 The reference is longer only by the binaural room tail: the component and this
 plugin cut the delivered stream at the file's duration, `joc_cli`'s
