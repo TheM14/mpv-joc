@@ -166,7 +166,18 @@ jobs:
         run: |
           set -euo pipefail
           abi=arm64-v8a
-          libs="$GITHUB_WORKSPACE/android/app/src/main/jniLibs/$abi"
+          jni="$GITHUB_WORKSPACE/android/app/src/main/jniLibs"
+          # The checkout carries this path as a symlink (pointing at a prefix
+          # directory for an ABI we do not build), and mkdir -p refuses a
+          # dangling link with "File exists". Replace it with a plain directory.
+          if [ -L "$jni" ]; then
+            echo "jniLibs is a symlink to $(readlink "$jni" 2>/dev/null || echo '?'); replacing it"
+            rm -f "$jni"
+          elif [ -e "$jni" ] && [ ! -d "$jni" ]; then
+            echo "jniLibs is a file; replacing it with a directory"
+            rm -f "$jni"
+          fi
+          libs="$jni/$abi"
           mkdir -p "$libs"
           cp "$GITHUB_WORKSPACE/android/buildscripts/prefix/arm64/lib/libmpv.so" "$libs/"
           cp "$GITHUB_WORKSPACE/joc/build-android/libjoc_core.so" "$libs/"
