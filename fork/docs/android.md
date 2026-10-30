@@ -53,9 +53,24 @@
 
 1. CI 先只做 **arm64 的 joc_core 交叉编译**，产出 `libjoc_core.so`。这一步最快暴露平台问题。
 2. 再跑 mpv-android 的 buildscripts + 我们的 patch，产出 arm64 的 `libmpv.so`。
-3. 在 mpv-android 里加一个最小 demo：`jniLibs/arm64-v8a/libjoc_core.so`，启动参数加
-   `--ad=joc --ad-joc-hrtf=...`，用 `adb logcat -s mpv` 验证开始渲染。
+3. CI 把 `libmpv.so`、`libjoc_core.so`、`libc++_shared.so` 放进 app 的
+   `jniLibs/arm64-v8a/`，再 `./gradlew assembleRelease` 打出可安装的 APK；在 mpv 的
+   配置文件里加 `--ad=joc --ad-joc-hrtf=...`，用 `adb logcat -s mpv` 验证开始渲染。
 4. 对拍：手机上把输出写成 WAV（`--ao=pcm`），拉回 PC 与 `joc_cli` 比较，确认 NEON 路径正确。
+
+## CI 产物
+
+`build-android.yml` 的 arm64 任务现在产出两类工件：
+
+- `mpv-ad-joc-android-arm64-v8a`：`libmpv.so`、`libjoc_core.so`、`libc++_shared.so`，
+  给已经自己编好的 mpv 用；
+- `mpv-joc-android-arm64-v8a-apk`：上面这三个库已经打进 mpv-android 的
+  `jniLibs/arm64-v8a/`，由 `assembleRelease` 打包并签名，安装包直接可装。
+
+签名用的是 CI 现场生成的临时 keystore（`-Pandroid.injected.signing.*`），只保证可安装，
+不代表发布身份；要正式分发就把这段换成仓库 secret 里的 keystore。APK 里仍是原版
+mpv-android 界面，`--ad=joc`、`--ad-joc-hrtf=` 等参数要在应用能读到的 `mpv.conf`
+里给出，HRTF 文件也要放在应用可访问的目录。
 
 ## 参考
 

@@ -161,6 +161,106 @@ jobs:
           path: dist/arm64-v8a/
           if-no-files-found: error
 
+      - name: Install the native libraries into the app
+        shell: bash
+        run: |
+          set -euo pipefail
+          abi=arm64-v8a
+          libs="$GITHUB_WORKSPACE/android/app/src/main/jniLibs/$abi"
+          mkdir -p "$libs"
+          cp "$GITHUB_WORKSPACE/android/buildscripts/prefix/arm64/lib/libmpv.so" "$libs/"
+          cp "$GITHUB_WORKSPACE/joc/build-android/libjoc_core.so" "$libs/"
+          source "$GITHUB_WORKSPACE/android/buildscripts/include/depinfo.sh"
+          libcxx=$(find "$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}/toolchains/llvm/prebuilt" \
+            -path '*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so' -print -quit)
+          test -n "$libcxx"
+          cp "$libcxx" "$libs/"
+          ls -lh "$libs"
+
+      - name: Cache the Gradle home
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Build the Android APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          # download-sdk.sh unpacks the SDK under android/buildscripts/sdk; find
+          # the root by its platforms/ directory instead of hard-coding the name.
+          sdk_dir=""
+          for candidate in \
+            "$GITHUB_WORKSPACE/android/buildscripts/sdk/android-sdk" \
+            "$GITHUB_WORKSPACE/android/buildscripts/sdk"; do
+            if [ -d "$candidate/platforms" ]; then sdk_dir="$candidate"; break; fi
+          done
+          if [ -z "$sdk_dir" ]; then
+            echo "::error::no Android SDK (no platforms/ directory) under android/buildscripts/sdk"
+            find "$GITHUB_WORKSPACE/android/buildscripts/sdk" -maxdepth 2 -type d | head -40
+            exit 1
+          fi
+          echo "ANDROID_SDK_ROOT=$sdk_dir" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$sdk_dir" >> "$GITHUB_ENV"
+          echo "sdk.dir=$sdk_dir" > "$GITHUB_WORKSPACE/android/local.properties"
+          # Accept the SDK licences, so AGP may install whatever compileSdk or
+          # build-tools the app asks for instead of failing on an unaccepted hash.
+          if [ -x "$sdk_dir/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$sdk_dir/cmdline-tools/latest/bin/sdkmanager" \
+              --sdk_root="$sdk_dir" --licenses >/dev/null 2>&1 || true
+          fi
+          # The NDK is unpacked as android-ndk-<release>; AGP looks it up by the
+          # source.properties revision under ndk/, so link it there too.
+          source "$GITHUB_WORKSPACE/android/buildscripts/include/depinfo.sh"
+          ndk="$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}"
+          if [ -d "$ndk" ]; then
+            ndk_revision=$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk/source.properties" 2>/dev/null | head -1)
+            mkdir -p "$sdk_dir/ndk"
+            ln -sfn "$ndk" "$sdk_dir/ndk/${ndk_revision:-$v_ndk}"
+          fi
+          # A throwaway key keeps the artifact installable; replace it with a
+          # repository secret when the build should be signed for distribution.
+          keytool -genkeypair -noprompt -keystore "$GITHUB_WORKSPACE/ci-signing.jks" \
+            -storepass android -keypass android -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=mpv-joc CI, O=mpv-joc, C=CN"
+          cd "$GITHUB_WORKSPACE/android"
+          ./gradlew --no-daemon --stacktrace assembleRelease \
+            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/ci-signing.jks" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android
+
+      - name: Collect the APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/apk
+          mapfile -t apks < <(find "$GITHUB_WORKSPACE/android/app/build/outputs/apk" -name '*.apk' -print)
+          if [ ${#apks[@]} -eq 0 ]; then
+            echo "::error::the Gradle build finished without an APK"
+            find "$GITHUB_WORKSPACE/android/app/build/outputs" -maxdepth 4 -type f | head -40
+            exit 1
+          fi
+          apksigner=$(find "$GITHUB_WORKSPACE/android/buildscripts/sdk" -path '*/build-tools/*/apksigner' -type f -print -quit 2>/dev/null || true)
+          for apk in "${apks[@]}"; do
+            if [ -n "$apksigner" ]; then
+              "$apksigner" verify --print-certs "$apk" | head -2
+            fi
+          done
+          cp "${apks[@]}" dist/apk/
+          ls -lh dist/apk
+
+      - name: Upload the Android APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-joc-android-arm64-v8a-apk
+          path: dist/apk/
+          if-no-files-found: error
+
       - name: Upload JOC core even if mpv fails
         if: failure()
         uses: actions/upload-artifact@v4

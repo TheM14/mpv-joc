@@ -51,7 +51,7 @@ mpv-joc/
     patches/              同一改动的 diff（精确复现用）
     tools/                锚点应用、构建、DLL 收集脚本
     docs/                 Android（libmpv.so）可行性调研
-  .github/workflows/      补丁的 CI：构建产物 + 每日跟最新 mpv 检查
+  .github/workflows/      补丁的 CI：构建产物（Windows / Android APK）+ 每日跟最新 mpv 检查
 ```
 
 ## 环境要求
