@@ -65,6 +65,9 @@ struct Settings {
     unsigned audio_index = 0;
     std::string speaker_layout = "7.1";
     HrtfSource hrtf_source = HrtfSource::kSofa;
+    // Filterbank of the Rosella path: 0 = the renderer's default (public bank),
+    // 2 = the captured bank.  Only the Rosella input reads it.
+    std::uint32_t rosella_filterbank = 0;
     // Empty means the default file in the default folder, see resolve_hrtf_file().
     std::string hrtf_file;
     std::string hrtf_cache_dir;       // SOFA compile cache (disk policy)

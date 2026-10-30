@@ -1025,6 +1025,8 @@ bool Engine::start(const std::string& input_path, const Settings& settings, std:
     config.speaker_layout_name = settings.speaker_layout.c_str();
     config.speaker_metadata_offset = 0;
     config.binaural_mode = settings.binaural_mode;
+    // 0 selects the kernel's default (the public bank); the SOFA path ignores it.
+    config.rosella_filterbank = settings.rosella_filterbank;
     // The filter bank tables live in the library (hrtf::builtin_kernels in
     // kernel_tables.cpp), so there is no table path to configure and none is
     // passed: the field stays null.  The same goes for the compiled-HRTF cache:
@@ -1087,6 +1089,11 @@ bool Engine::start(const std::string& input_path, const Settings& settings, std:
     joc_log::line("core: stream created, %u output channel(s), layout=%s, hrtf=%s", impl.channels,
                     settings.speaker_layout.c_str(),
                     hrtf_in_use.empty() ? "(none)" : hrtf_in_use.c_str());
+    if (settings.output == Output::kBinaural &&
+        settings.hrtf_source == HrtfSource::kRosella) {
+        joc_log::line("core: rosella filterbank=%s",
+                      settings.rosella_filterbank == 2u ? "captured" : "public");
+    }
 
     // ffmpeg's stderr lands next to the component rather than in whatever working
     // directory the host process happens to have.  The two children write separate

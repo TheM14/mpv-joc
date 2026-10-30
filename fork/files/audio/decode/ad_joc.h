@@ -21,6 +21,7 @@ struct ad_joc_params {
     char *layout;       /* speaker layout name, e.g. "7.1" or "9.1.6" */
     bool int24;         /* quantise the output to the renderer's int24 rule */
     int binaural_mode;  /* JOC_BINAURAL_NEAR(1) / FAR(2) / MID(3) */
+    int rosella_filterbank; /* Rosella filterbank: 0 default (public), 2 captured */
     double gain_db;
 };
 

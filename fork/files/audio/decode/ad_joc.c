@@ -66,6 +66,9 @@ const struct m_sub_options ad_joc_conf = {
         {"layout", OPT_STRING(layout), .flags = M_OPT_FILE},
         {"mode", OPT_CHOICE(binaural_mode,
                             {"near", 1}, {"far", 2}, {"mid", 3})},
+        {"rosella-filterbank", OPT_CHOICE(rosella_filterbank,
+                                          {"1", 1}, {"public", 1},
+                                          {"2", 2}, {"captured", 2})},
         {"gain-db", OPT_DOUBLE(gain_db), M_RANGE(-60.0, 12.0)},
         {"int24", OPT_BOOL(int24)},
         {0}
@@ -77,6 +80,7 @@ const struct m_sub_options ad_joc_conf = {
         .hrtf = "",
         .layout = "7.1",
         .binaural_mode = 3,
+        .rosella_filterbank = 0,
         .gain_db = 0.0,
     },
 };
@@ -790,6 +794,15 @@ static struct mp_decoder *create(struct mp_filter *parent,
     cfg.input = JOC_STREAM_IN_EAC3;
     cfg.output = binaural ? JOC_STREAM_OUT_BINAURAL : JOC_STREAM_OUT_SPEAKER;
     cfg.binaural_mode = (uint32_t)opts->binaural_mode;
+    /* 0 is the kernel's default (the public bank); a SOFA or .jochrtf input
+     * ignores the field, so say so instead of leaving the option a no-op. */
+    cfg.rosella_filterbank = (uint32_t)opts->rosella_filterbank;
+    if (binaural && hrtf_kind != HRTF_ROSELLA && opts->rosella_filterbank != 0)
+        MP_WARN(da, "--ad-joc-rosella-filterbank only applies to a Rosella "
+                    "(.personalized_headphone) HRTF; ignoring it\n");
+    if (binaural && hrtf_kind == HRTF_ROSELLA)
+        MP_VERBOSE(da, "rosella filterbank: %s\n",
+                   opts->rosella_filterbank == 2 ? "captured" : "public");
     cfg.gain_db = opts->gain_db;
     cfg.object_delay_samples = 1473;
     if (binaural) {

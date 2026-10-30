@@ -86,6 +86,7 @@ ignored and reported in `joc_decoder.log`.
 | `joc-output` | binaural / speaker | binaural | output form |
 | `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | speaker layout; used only with `speaker` |
 | `joc-hrtf-source` | sofa / rosella | sofa | binaural HRTF input |
+| `joc-rosella-filterbank` | 1 / 2 (or public / captured) | 1 | Rosella filterbank: 1 = the public 13-tap / 6-slot bank, 2 = the captured 11-tap / 3-slot bank that matches the reference renderer; only read with `joc-hrtf-source=rosella` |
 | `joc-hrtf` | path | empty | empty: default name under `<plugin>\\HRTF\\` or `<plugin>\\..\\HRTF\\` |
 | `joc-mode` | near / mid / far | mid | binaural mode |
 | `joc-gain-db` | float (dB) | 0 | render gain (binaural can exceed full scale) |

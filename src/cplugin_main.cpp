@@ -317,6 +317,14 @@ struct Plugin {
         settings.speaker_layout = config.layout;
         settings.hrtf_source = (config.hrtf_source == 0) ? joc_decode::HrtfSource::kSofa
                                                          : joc_decode::HrtfSource::kRosella;
+        settings.rosella_filterbank =
+            static_cast<std::uint32_t>(config.rosella_filterbank);
+        if (config.rosella_filterbank != 0 &&
+            settings.hrtf_source != joc_decode::HrtfSource::kRosella) {
+            joc_log::line("config: joc-rosella-filterbank=%d ignored: it applies to "
+                          "joc-hrtf-source=rosella only",
+                          config.rosella_filterbank);
+        }
         settings.hrtf_file = config.hrtf_file;
         if (settings.hrtf_file.empty() && settings.output == joc_decode::Output::kBinaural) {
             settings.hrtf_file = default_hrtf_file(config);

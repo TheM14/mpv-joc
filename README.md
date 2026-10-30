@@ -100,6 +100,7 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 | `joc-output` | binaural / speaker | binaural | 输出形式 |
 | `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用 |
 | `joc-hrtf-source` | sofa / rosella | sofa | 双耳用哪种 HRTF 输入 |
+| `joc-rosella-filterbank` | 1 / 2（或 public / captured） | 1 | Rosella 滤波器组：1=13 taps/6 slots 的公开版，2=11 taps/3 slots 的捕获版（与参考渲染器一致）；仅 `joc-hrtf-source=rosella` 使用 |
 | `joc-hrtf` | 路径 | 空 | 空则用 `<插件目录>\\HRTF\\` 或 `<插件目录>\\..\\HRTF\\` 下的默认文件名 |
 | `joc-mode` | near / mid / far | mid | 双耳模式 |
 | `joc-gain-db` | 浮点（dB） | 0 | 渲染增益；双耳可能超过满刻度，需要时在这里衰减 |

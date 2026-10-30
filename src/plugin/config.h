@@ -13,6 +13,9 @@ struct Config {
     std::string layout = "7.1";
     // 0 = SOFA, 1 = Rosella personalized headphone model.
     int hrtf_source = 0;
+    // Rosella filterbank: 0 = the renderer's default (public bank), 2 = captured.
+    // Only the Rosella input reads it; the SOFA and .jochrtf paths ignore it.
+    int rosella_filterbank = 0;
     std::string hrtf_file;          // empty: <plugin dir>\\HRTF\\binaural.<ext>
     // 1 = near, 2 = far, 3 = mid (the renderer's own default).
     int binaural_mode = 3;

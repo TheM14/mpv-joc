@@ -61,6 +61,15 @@ if ($Rosella -ne "") {
     Invoke-Capture "joc-int24=yes,joc-hrtf-source=rosella,joc-hrtf=$Rosella" $actual
     & $Python (Join-Path $PSScriptRoot "compare_wav.py") $actual $reference
     if ($LASTEXITCODE -ne 0) { $failures++ }
+
+    Write-Output "=== binaural float32 (Rosella, captured filterbank) ==="
+    $reference = Join-Path $WorkDir "reference.binaural.bank2.f32.wav"
+    $actual = Join-Path $WorkDir "plugin.binaural.bank2.f32.wav"
+    & $JocCli $Media --binaural --personalized-headphone $Rosella `
+        --rosella-filterbank 2 --binaural-format float32 --binaural-output $reference | Out-Null
+    Invoke-Capture "joc-hrtf-source=rosella,joc-hrtf=$Rosella,joc-rosella-filterbank=2" $actual
+    & $Python (Join-Path $PSScriptRoot "compare_wav.py") $actual $reference
+    if ($LASTEXITCODE -ne 0) { $failures++ }
 }
 foreach ($layout in @("2.0", "3.1", "4.0", "5.1", "7.1", "5.1.2", "5.1.4", "7.1.2",
                        "7.1.4", "9.1.4", "9.1.6")) {

@@ -129,6 +129,7 @@ ad-joc-binaural = yes          # 默认就是 yes（双声道输出）
 ad-joc-hrtf = C:/HRTF/binaural.sofa   # 可省：会自动找
 ad-joc-layout = 7.1            # 仅 binaural=no 时使用
 ad-joc-mode = mid
+ad-joc-rosella-filterbank = 1  # Rosella 输入：1=公开版（默认），2=捕获版
 ad-joc-gain-db = 0
 ```
 
@@ -140,8 +141,13 @@ ad-joc-gain-db = 0
 | `--ad-joc-hrtf` | SOFA / Rosella / `.jochrtf` 路径 | 空（自动搜索） |
 | `--ad-joc-layout` | `2.0` `3.1` `4.0` `5.1` `7.1` `5.1.2` `5.1.4` `7.1.2` `7.1.4` `9.1.4` `9.1.6`| 7.1 |
 | `--ad-joc-mode` | near / far / mid | mid |
+| `--ad-joc-rosella-filterbank` | 1 / 2（或 public / captured） | 1（公开版） |
 | `--ad-joc-gain-db` | -60 … 12 | 0 |
 | `--ad-joc-int24` | yes / no | no |
+
+`--ad-joc-rosella-filterbank=2` 只在 `--ad-joc-hrtf` 指向 `.personalized_headphone` 时生效：
+`1` 是 13 taps / 6 slots 的公开滤波器组，`2` 是 11 taps / 3 slots 的捕获版（与参考渲染器
+一致、延迟 448 samples）。SOFA 与 `.jochrtf` 输入忽略该选项并给一条 warning。
 
 `--ad-joc-int24` 把输出量化到渲染器的 24-bit 规则（与上游前端的 int24 交付一致）：
 clip 到 [-1,1]、乘 8388607、向零截断、取低 24 位，再按 `n / 2^23` 读回。默认关闭，

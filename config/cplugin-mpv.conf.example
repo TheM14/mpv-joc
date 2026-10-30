@@ -18,6 +18,10 @@ script-opts=joc-output=binaural,joc-hrtf-source=sofa,joc-mode=mid,joc-gain-db=0
 # 指定 HRTF 文件（默认找 <mpv>\HRTF\binaural.sofa）：
 #   script-opts-append=joc-hrtf=D:/hrtf/MyMeasurements.sofa
 #
+# Rosella 模型用捕获版滤波器组（与参考渲染器一致；默认 1 = 公开版）：
+#   script-opts-append=joc-hrtf-source=rosella
+#   script-opts-append=joc-rosella-filterbank=2
+#
 # 交付 24bit 定点：
 #   script-opts-append=joc-int24=yes
 #

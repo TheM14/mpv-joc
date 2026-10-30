@@ -91,6 +91,14 @@ Config parse_config(const std::string& script_opts, std::string* warnings) {
             } else {
                 unsupported(key + "=" + value);
             }
+        } else if (key == "joc-rosella-filterbank") {
+            if (value == "1" || value == "public") {
+                config.rosella_filterbank = 1;
+            } else if (value == "2" || value == "captured") {
+                config.rosella_filterbank = 2;
+            } else {
+                unsupported(key + "=" + value);
+            }
         } else if (key == "joc-hrtf") {
             config.hrtf_file = value;
         } else if (key == "joc-mode") {
