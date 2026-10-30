@@ -325,10 +325,12 @@ jobs:
                   libavcodec.so libavfilter.so libavformat.so libavutil.so
                   libavdevice.so libswresample.so libswscale.so"
           for apk in "${selected[@]}"; do
-            packaged=$(unzip -l "$apk" | awk -v p="lib/$abi/" '$4 ~ p { print $4 }')
+            packaged=$(unzip -l "$apk" | awk -v p="lib/$abi/" '$4 ~ "^"p { print $4 }')
             missing=""
             for lib in $needed; do
-              case " $packaged " in *" lib/$abi/$lib "*) ;; *) missing="$missing $lib" ;; esac
+              if ! printf '%s\n' "$packaged" | grep -qxF "lib/$abi/$lib"; then
+                missing="$missing $lib"
+              fi
             done
             if [ -n "$missing" ]; then
               echo "::error::$apk misses$missing"
