@@ -139,7 +139,7 @@ jobs:
           ndk="$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}"
           out=dist/arm64-v8a
           mkdir -p "$out"
-          cp android/buildscripts/prefix/arm64/lib/libmpv.so "$out/"
+          cp android/buildscripts/prefix/arm64/lib/*.so "$out/"
           cp joc/build-android/libjoc_core.so "$out/"
           libcxx=$(find "$ndk/toolchains/llvm/prebuilt" \
             -path '*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so' -print -quit)
@@ -179,7 +179,11 @@ jobs:
           fi
           libs="$main/libs/$abi"
           mkdir -p "$libs"
-          cp "$GITHUB_WORKSPACE/android/buildscripts/prefix/arm64/lib/libmpv.so" "$libs/"
+          # This build links the ffmpeg stack dynamically, so the app needs
+          # every shared object from the cross-build prefix, not just libmpv.so
+          # (libmpv's DT_NEEDED lists libav*/libsw*).
+          find "$GITHUB_WORKSPACE/android/buildscripts/prefix/arm64/lib" \
+            -maxdepth 1 -type f -name '*.so*' -exec cp -t "$libs" {} +
           cp "$GITHUB_WORKSPACE/joc/build-android/libjoc_core.so" "$libs/"
           source "$GITHUB_WORKSPACE/android/buildscripts/include/depinfo.sh"
           libcxx=$(find "$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}/toolchains/llvm/prebuilt" \
@@ -260,26 +264,42 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/apk
-          mapfile -t apks < <(find "$GITHUB_WORKSPACE/android/app/build/outputs/apk" -name '*.apk' -print)
-          if [ ${#apks[@]} -eq 0 ]; then
+          mapfile -t built < <(find "$GITHUB_WORKSPACE/android/app/build/outputs/apk" -name '*.apk' -print)
+          if [ ${#built[@]} -eq 0 ]; then
             echo "::error::the Gradle build finished without an APK"
             find "$GITHUB_WORKSPACE/android/app/build/outputs" -maxdepth 4 -type f | head -40
             exit 1
           fi
+          # One installable APK is enough: the allstorage flavour covers normal
+          # playback and full file access, and the universal variant keeps the
+          # ABI splits from multiplying the artifact.
+          selected=()
+          for apk in "${built[@]}"; do
+            case "$apk" in *allstorage*universal*) selected+=("$apk") ;; esac
+          done
+          if [ ${#selected[@]} -eq 0 ]; then
+            for apk in "${built[@]}"; do
+              case "$apk" in *allstorage*) selected+=("$apk") ;; esac
+            done
+          fi
+          if [ ${#selected[@]} -eq 0 ]; then
+            echo "::warning::no allstorage APK found; uploading every variant"
+            selected=("${built[@]}")
+          fi
           apksigner=$(find "$GITHUB_WORKSPACE/android/buildscripts/sdk" -path '*/build-tools/*/apksigner' -type f -print -quit 2>/dev/null || true)
-          for apk in "${apks[@]}"; do
+          for apk in "${selected[@]}"; do
             if [ -n "$apksigner" ]; then
               "$apksigner" verify --print-certs "$apk" | head -2
             fi
           done
-          cp "${apks[@]}" dist/apk/
+          cp "${selected[@]}" dist/apk/
           ls -lh dist/apk
 
       - name: Upload the Android APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: mpv-joc-android-arm64-v8a-apk
+          name: mpv-joc-android-apk
           path: dist/apk/
           if-no-files-found: error
 

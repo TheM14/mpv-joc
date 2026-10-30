@@ -20,9 +20,18 @@ ad-joc-layout = 7.1
 # Binaural rendering mode: near | mid | far.
 ad-joc-mode = mid
 
+# Rosella input only: which filterbank the renderer uses. 1 = the public bank
+# (13 taps / 6 slots, the default), 2 = the captured bank (11 taps / 3 slots)
+# that matches the reference renderer. Ignored for SOFA and .jochrtf input.
+ad-joc-rosella-filterbank = 1
+
 # Extra gain in dB (-60 .. 12).
 ad-joc-gain-db = 0
 
 # Quantise the output to the renderer's 24-bit rule (the same truncation
 # the renderer's own frontends deliver in int24 mode). Off = plain float32.
 ad-joc-int24 = no
+
+# Android: there is no executable directory to search, so ad-joc-hrtf must be
+# a full path the app can read.
+# ad-joc-hrtf = /sdcard/Download/binaural.sofa
