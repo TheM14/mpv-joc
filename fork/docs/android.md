@@ -64,10 +64,12 @@
 
 - `mpv-ad-joc-android-arm64-v8a`：`libmpv.so`、`libjoc_core.so`、`libc++_shared.so`，
   给已经自己编好的 mpv 用；
-- `mpv-joc-android-apk`：一个 `app-allstorage-universal-release.apk`，上面这三个库
-  已经打进 mpv-android 的 `libs/arm64-v8a/`，由 `assembleRelease` 打包并签名，
-  直接可装。mpv-android 本身会出 `default` / `allstorage` × `arm64-v8a` / `universal`
-  四个包，CI 只保留 allstorage 的 universal 版：权限最全，ABI 拆包也不会让工件变多。
+- `mpv-joc-android-apk`：一个 `app-allstorage-universal-release.apk`，由 `assembleRelease`
+  打包并签名，直接可装。包里的 `libplayer.so` 由 `ndk-build` 现编（`app/src/main/jni`），
+  `libmpv.so` 和 ffmpeg 的 `libav*` / `libsw*` 一起放进 `libs/arm64-v8a/`；`ndk.properties`
+  让 AGP 用 NDK 的 strip 处理这些库。mpv-android 本身会出 `default` / `allstorage`
+  × `arm64-v8a` / `universal` 四个包，CI 只保留 allstorage 的 universal 版：权限最全，
+  ABI 拆包也不会让工件变多。
 
 签名用的是 CI 现场生成的临时 keystore（`-Pandroid.injected.signing.*`），只保证可安装，
 不代表发布身份；要正式分发就把这段换成仓库 secret 里的 keystore。APK 里仍是原版

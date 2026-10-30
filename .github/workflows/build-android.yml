@@ -131,6 +131,30 @@ jobs:
         working-directory: android/buildscripts
         run: ./buildall.sh --arch arm64 -n mpv
 
+      - name: Build the JNI bridge (libplayer.so)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/android"
+          source buildscripts/include/path.sh
+          source buildscripts/include/depinfo.sh
+          ndk="$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}"
+          export ANDROID_NDK_ROOT="$ndk"
+          export PATH="$ndk:$PATH"
+          # mpv-android's own build runs ndk-build over app/src/main/jni and
+          # installs libplayer.so plus the prebuilt ffmpeg/mpv objects into
+          # app/src/main/libs/<abi>, which is what the jniLibs symlink points
+          # at. The app loads libplayer.so before libmpv, so without this step
+          # every playback dies with UnsatisfiedLinkError.
+          PREFIX32="" PREFIX64="$(realpath buildscripts/prefix/arm64)" \
+            PREFIX_X86="" PREFIX_X64="" \
+            ndk-build -C app/src/main -j"$(nproc)"
+          # The Gradle build reads this to find the NDK for symbol stripping.
+          printf '%s\n' \
+            "# This file is automatically written by the build scripts, and read using Gradle" \
+            "ndkVersion=$v_ndk_n" "ndkRoot=$ANDROID_NDK_ROOT" > ndk.properties
+          ls -l app/src/main/libs/arm64-v8a
+
       - name: Package Android shared libraries
         shell: bash
         run: |
@@ -179,6 +203,8 @@ jobs:
           fi
           libs="$main/libs/$abi"
           mkdir -p "$libs"
+          echo "staged by the build scripts in libs/$abi:"
+          ls -l "$libs" 2>/dev/null || true
           # This build links the ffmpeg stack dynamically, so the app needs
           # every shared object from the cross-build prefix, not just libmpv.so
           # (libmpv's DT_NEEDED lists libav*/libsw*).
@@ -291,6 +317,30 @@ jobs:
             if [ -n "$apksigner" ]; then
               "$apksigner" verify --print-certs "$apk" | head -2
             fi
+          done
+          # The player loads its JNI bridge (libplayer.so) before libmpv, and
+          # libmpv in turn needs the ffmpeg shared objects; shipping an ABI
+          # directory without them produces a crash on the first playback.
+          abi=arm64-v8a
+          needed="libplayer.so libmpv.so libjoc_core.so libc++_shared.so
+                  libavcodec.so libavfilter.so libavformat.so libavutil.so
+                  libavdevice.so libswresample.so libswscale.so"
+          for apk in "${selected[@]}"; do
+            packaged=$(unzip -l "$apk" | awk -v p="lib/$abi/" '$4 ~ p { print $4 }')
+            missing=""
+            for lib in $needed; do
+              case " $packaged " in *" lib/$abi/$lib "*) ;; *) missing="$missing $lib" ;; esac
+            done
+            if [ -n "$missing" ]; then
+              echo "::error::$apk misses$missing"
+              echo "$packaged"
+              echo "staged in app/src/main/libs/$abi:"
+              ls -l "$GITHUB_WORKSPACE/android/app/src/main/libs/$abi" 2>/dev/null | head -40 || true
+              echo "libplayer.so found anywhere in the tree:"
+              find "$GITHUB_WORKSPACE/android" -name 'libplayer.so' -print 2>/dev/null | head -10 || true
+              exit 1
+            fi
+            echo "$apk: $(echo "$packaged" | wc -l) shared object(s) packaged"
           done
           cp "${selected[@]}" dist/apk/
           ls -lh dist/apk
