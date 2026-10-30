@@ -134,9 +134,8 @@ jobs:
       - name: Build the JNI bridge (libplayer.so)
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
           cd "$GITHUB_WORKSPACE/android"
-          source buildscripts/include/path.sh
           source buildscripts/include/depinfo.sh
           ndk="$GITHUB_WORKSPACE/android/buildscripts/sdk/android-ndk-${v_ndk}"
           export ANDROID_NDK_ROOT="$ndk"
