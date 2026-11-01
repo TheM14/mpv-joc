@@ -610,7 +610,7 @@ static float quantize_int24(float v)
     return (float)written / 8388608.0f;
 }
 
-enum hrtf_kind { HRTF_UNKNOWN, HRTF_SOFA, HRTF_ROSELLA, HRTF_KERNELS };
+enum hrtf_kind { HRTF_UNKNOWN, HRTF_ROSELLA };
 
 static bool file_exists(const char *path)
 {
@@ -623,20 +623,6 @@ static bool file_exists(const char *path)
     return true;
 }
 
-static bool ends_with_ci(const char *s, const char *suffix)
-{
-    size_t a = strlen(s), b = strlen(suffix);
-    if (a < b)
-        return false;
-    for (size_t i = 0; i < b; i++) {
-        char x = s[a - b + i], y = suffix[i];
-        if (x >= 'A' && x <= 'Z') x += 32;
-        if (y >= 'A' && y <= 'Z') y += 32;
-        if (x != y)
-            return false;
-    }
-    return true;
-}
 
 static bool contains(const void *hay, size_t n, const char *needle)
 {
@@ -650,16 +636,13 @@ static bool contains(const void *hay, size_t n, const char *needle)
     return false;
 }
 
-/* The renderer takes three kinds of HRTF input and the user should not have to
- * say which: SOFA is HDF5, the Rosella model is JSON with a personalized_hrtf
- * object, and a compiled kernel is a .jochrtf.  Look at the extension first
- * (conclusive for kernels), then at the file signature. */
+/* The renderer takes the Rosella model; a compiled .jochrtf is an internal
+ * artifact and is never named here, so the only input this decoder recognises is
+ * the JSON model with a personalized_hrtf object. */
 static enum hrtf_kind hrtf_kind_of(const char *path)
 {
     if (!path || !path[0])
         return HRTF_UNKNOWN;
-    if (ends_with_ci(path, ".jochrtf"))
-        return HRTF_KERNELS;
 
     unsigned char head[4096];
     FILE *fp = fopen(path, "rb");
@@ -668,8 +651,6 @@ static enum hrtf_kind hrtf_kind_of(const char *path)
     size_t n = fread(head, 1, sizeof(head), fp);
     fclose(fp);
 
-    if (n >= 8 && memcmp(head, "\x89HDF\r\n\x1a\n", 8) == 0)
-        return HRTF_SOFA;
     for (size_t i = 0; i < n; i++) {
         if (head[i] == ' ' || head[i] == '\t' || head[i] == '\r' || head[i] == '\n')
             continue;
@@ -677,8 +658,6 @@ static enum hrtf_kind hrtf_kind_of(const char *path)
             return HRTF_ROSELLA;
         break;
     }
-    if (ends_with_ci(path, ".sofa"))
-        return HRTF_SOFA;
     return HRTF_UNKNOWN;
 }
 
@@ -698,7 +677,7 @@ static char *exe_dir(void *ta)
 }
 
 /* Explicit --ad-joc-hrtf wins; otherwise look where the standalone renderer
- * looks: HRTF/binaural.sofa or HRTF/binaural.personalized_headphone next to
+ * looks: HRTF/binaural.personalized_headphone next to
  * mpv.exe, then the same names under the mpv config directory. */
 static char *find_hrtf(struct mp_filter *da, struct ad_joc_params *opts)
 {
@@ -712,10 +691,7 @@ static char *find_hrtf(struct mp_filter *da, struct ad_joc_params *opts)
     }
 
     static const char *const names[] = {
-        "HRTF/binaural.sofa",
         "HRTF/binaural.personalized_headphone",
-        "HRTF/binaural.jochrtf",
-        "joc-hrtf/binaural.sofa",
         "joc-hrtf/binaural.personalized_headphone",
     };
     char *dir = exe_dir(p);
@@ -758,7 +734,7 @@ static struct mp_decoder *create(struct mp_filter *parent,
         if (hrtf_kind == HRTF_UNKNOWN) {
             MP_WARN(da, "no usable HRTF found%s%s; rendering the speaker layout "
                         "instead (mpv downmixes it to stereo). Place "
-                        "HRTF/binaural.sofa next to mpv.exe or set --ad-joc-hrtf.\n",
+                        "HRTF/binaural.personalized_headphone next to mpv.exe or set --ad-joc-hrtf.\n",
                     hrtf_path ? ": " : "", hrtf_path ? hrtf_path : "");
             binaural = false;
         }
@@ -794,36 +770,15 @@ static struct mp_decoder *create(struct mp_filter *parent,
     cfg.input = JOC_STREAM_IN_EAC3;
     cfg.output = binaural ? JOC_STREAM_OUT_BINAURAL : JOC_STREAM_OUT_SPEAKER;
     cfg.binaural_mode = (uint32_t)opts->binaural_mode;
-    /* 0 is the kernel's default (the public bank); a SOFA or .jochrtf input
-     * ignores the field, so say so instead of leaving the option a no-op. */
+    /* 0 is the kernel's default (the public bank). */
     cfg.rosella_filterbank = (uint32_t)opts->rosella_filterbank;
-    if (binaural && hrtf_kind != HRTF_ROSELLA && opts->rosella_filterbank != 0)
-        MP_WARN(da, "--ad-joc-rosella-filterbank only applies to a Rosella "
-                    "(.personalized_headphone) HRTF; ignoring it\n");
-    if (binaural && hrtf_kind == HRTF_ROSELLA)
+    if (binaural)
         MP_VERBOSE(da, "rosella filterbank: %s\n",
                    opts->rosella_filterbank == 2 ? "captured" : "public");
     cfg.gain_db = opts->gain_db;
     cfg.object_delay_samples = 1473;
     if (binaural) {
-        if (hrtf_kind == HRTF_SOFA)
-            cfg.hrtf_sofa_path = hrtf_path;
-        else if (hrtf_kind == HRTF_ROSELLA)
-            cfg.personalized_headphone_path = hrtf_path;
-        else if (hrtf_kind == HRTF_KERNELS)
-            cfg.hrtf_path = hrtf_path;
-        /* Compiling a SOFA is expensive; keep the kernels between runs. */
-        char *cache = mp_find_user_file(p, da->global, "cache", "joc-hrtf-cache");
-        if (!cache) {
-            char *dir = exe_dir(p);
-            if (dir)
-                cache = mp_path_join(p, dir, "joc-hrtf-cache");
-        }
-        if (cache) {
-            mp_mkdirp(cache);
-            cfg.hrtf_cache_dir = cache;
-            cfg.hrtf_cache_policy = 2;
-        } else {
+        cfg.personalized_headphone_path = hrtf_path;
             cfg.hrtf_cache_policy = 1;
         }
     } else {

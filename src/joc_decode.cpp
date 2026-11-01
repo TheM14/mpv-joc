@@ -496,7 +496,7 @@ std::string resolve_hrtf_file(const Settings& settings) {
     const std::string directory = component_directory();
     if (directory.empty()) return {};
     // Same convention as the reference CLI next to its executable:
-    // <base>\HRTF\binaural.sofa or <base>\HRTF\binaural.personalized_headphone.
+    // <base>\HRTF\binaural.personalized_headphone.
     const char* name = "binaural.personalized_headphone";
     return directory + "\\HRTF\\" + name;
 }

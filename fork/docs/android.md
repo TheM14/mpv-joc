@@ -44,7 +44,7 @@
 |---|---|
 | armv7l | `JOC_ARCH` 只认 x86_64/x86_32/aarch64，armv7 会退回标量内核：能播，慢。首选 arm64 |
 | `std::filesystem` | NDK 的 libc++ 在 API 23 支持；core 里用到的地方（SOFA 缓存、task、io）需要实际编一遍确认 |
-| HRTF 路径 | Android 上 `exe_dir()` 为空，必须由 app 传 `--ad-joc-hrtf=/data/user/0/<pkg>/files/binaural.sofa` |
+| HRTF 路径 | Android 上 `exe_dir()` 为空，必须由 app 传 `--ad-joc-hrtf=/data/user/0/<pkg>/files/binaural.personalized_headphone` |
 | 缓存目录 | `mp_find_user_file(global, "cache", ...)` 在 Android 上可能拿不到 → 代码已自动退回内存缓存 |
 | 许可 | LGPL：动态链接 libmpv.so + libjoc_core.so 合规；发布需附对应源码/补丁 |
 | 未验证 | NDK 编 joc_core 的真实报错、NEON 内核在手机上的数值正确性、实时性能 |

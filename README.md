@@ -69,7 +69,7 @@ mpv-joc/
 ```text
 <mpv>\\scripts\\joc_mpv.dll                     插件本体
 <mpv>\\joc_core.dll                      渲染内核（与 JustOneCacophonyCXX 同一个二进制）
-<mpv>\\HRTF\\binaural.sofa               双耳渲染默认数据
+<mpv>\\HRTF\\binaural.personalized_headphone               双耳渲染默认数据
 <mpv>\\HRTF\\binaural.personalized_headphone   （Rosella 模型，二选一）
 ```
 
@@ -246,7 +246,7 @@ cmake --build build --config Release
 
 * **没有任何 JOC 提示、听起来是普通 E-AC-3** —— 文件没有 JOC 元数据，或者容器的音频轨不是
   E-AC-3；插件不接管时 mpv 会照常播放原始轨。
-* **双耳报错"找不到 HRTF 文件"** —— 把 `binaural.sofa` 放到 `<mpv>\\HRTF\\`，或用
+* **双耳报错"找不到 HRTF 文件"** —— 把 `binaural.personalized_headphone` 放到 `<mpv>\\HRTF\\`，或用
   `joc-hrtf` 指定路径。
 * **想确认用的是哪条轨道** —— `joc-verbose=yes` 后看日志里的 `probe:` 与 `start:` 行。
 

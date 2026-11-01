@@ -55,7 +55,7 @@ One renderer (`joc_core.dll`), two integration shapes:
 ```text
 <mpv>\\scripts\\joc_mpv.dll                     the plugin
 <mpv>\\joc_core.dll                      the renderer (same binary as JustOneCacophonyCXX)
-<mpv>\\HRTF\\binaural.sofa               default binaural data
+<mpv>\\HRTF\\binaural.personalized_headphone               default binaural data
 <mpv>\\HRTF\\binaural.personalized_headphone   (Rosella model, either one)
 ```
 
@@ -250,7 +250,7 @@ because mpv would try to load it as a script. `--msg-level=all=info` shows the
 
 * **No JOC message, just plain E-AC-3** — the file has no JOC metadata, or the
   container's audio track is not E-AC-3; mpv keeps playing the original track.
-* **"cannot find the HRTF file"** — put `binaural.sofa` in `<mpv>\\HRTF\\` or
+* **"cannot find the HRTF file"** — put `binaural.personalized_headphone` in `<mpv>\\HRTF\\` or
   point `joc-hrtf` at it.
 * **Which track is in use?** — `joc-verbose=yes` and read the `probe:` / `start:`
   lines.

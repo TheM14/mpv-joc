@@ -126,7 +126,7 @@ ninja -C build
 # mpv.conf
 ad = joc
 ad-joc-binaural = yes          # 默认就是 yes（双声道输出）
-ad-joc-hrtf = C:/HRTF/binaural.sofa   # 可省：会自动找
+ad-joc-hrtf = C:/HRTF/binaural.personalized_headphone   # 可省：会自动找
 ad-joc-layout = 7.1            # 仅 binaural=no 时使用
 ad-joc-mode = mid
 ad-joc-rosella-filterbank = 1  # Rosella 输入：1=公开版（默认），2=捕获版
@@ -153,31 +153,19 @@ ad-joc-gain-db = 0
 clip 到 [-1,1]、乘 8388607、向零截断、取低 24 位，再按 `n / 2^23` 读回。默认关闭，
 输出就是渲染器的 float32。
 
-本仓库**不附带任何 HRTF 文件**：SOFA、Rosella 模型、编译出的 `.jochrtf` 缓存都不随仓库或发布包
-分发，需要自备。
+本仓库**不附带任何 HRTF 文件**：Rosella 模型不随仓库或发布包分发，需要自备。
 
-### HRTF 的三种输入与自动判断
+### HRTF 输入
 
-`--ad-joc-hrtf` 不需要说明类型，按文件内容判断（扩展名只作兜底）：
-
-| 输入 | 判断依据 | 交给渲染器 |
-|---|---|---|
-| SOFA | HDF5 魔数 `89 48 44 46 0D 0A 1A 0A` | `hrtf_sofa_path` |
-| Rosella 个性化模型 | 首字符 `{` 且含 `"personalized_hrtf"` | `personalized_headphone_path` |
-| 已编译核 | 扩展名 `.jochrtf` | `hrtf_path` |
-
-SOFA 编译结果会缓存成 `.jochrtf`（本机首帧 320 ms 左右，命中缓存后 110 ms 左右），
-缓存目录是 `<config>/cache/joc-hrtf-cache`，没有 config 目录时用 `<mpv.exe>/joc-hrtf-cache`。
+`--ad-joc-hrtf` 指向 Rosella `.personalized_headphone` 模型；解码器按文件内容确认
+（首字符 `{` 且含 `"personalized_hrtf"`），不认识的输入会打印提示并退回扬声器布局渲染。
 
 ### 不写 `--ad-joc-hrtf` 时
 
 按下面的顺序找，找到即用：
 
-1. `<mpv.exe>/HRTF/binaural.sofa`
-2. `<mpv.exe>/HRTF/binaural.personalized_headphone`
-3. `<mpv.exe>/HRTF/binaural.jochrtf`
-4. `<config>/joc-hrtf/binaural.sofa`
-5. `<config>/joc-hrtf/binaural.personalized_headphone`
+1. `<mpv.exe>/HRTF/binaural.personalized_headphone`
+2. `<config>/joc-hrtf/binaural.personalized_headphone`
 
 都找不到就打印一行提示，退回扬声器布局渲染（默认 7.1），由 mpv 按输出设备下混——双声道
 设备上仍然是双声道输出，不会没声音。
@@ -223,7 +211,7 @@ bash tools/bundle_dlls.sh /c/path/to/mpv-src/build   # 递归 ldd，把 /mingw64
   它们可以预滚 64 帧，AD 拿不到这些帧。
 * 只注册 `eac3`（`ac3` 没有 JOC）。非 JOC 的 E-AC-3 会自动回退，代价是开头约 0.26 s
   （8 帧）的判定窗口。
-* 双耳需要 HRTF：给 `--ad-joc-hrtf`，或把 `binaural.sofa` 放在 `mpv.exe` 旁边；都没有时
+* 双耳需要 HRTF：给 `--ad-joc-hrtf`，或把 `binaural.personalized_headphone` 放在 `mpv.exe` 旁边；都没有时
   退回扬声器布局，不再报错退出。
 * 每换一个 mpv 版本都要重新对齐 patch（AD 接口和注册点在 mpv 内部，不在稳定 ABI 里）。
 
