@@ -66,7 +66,7 @@ then `<plugin dir>\\joc_core.dll`, then `<plugin dir>\\..\\joc_core.dll`, then `
 Add to `mpv.conf`:
 
 ```ini
-script-opts=joc-output=binaural,joc-hrtf-source=sofa
+script-opts=joc-output=binaural
 ```
 
 Or load it explicitly:
@@ -85,8 +85,7 @@ ignored and reported in `joc_decoder.log`.
 | `joc-enabled` | yes / no | yes | disable the plugin entirely |
 | `joc-output` | binaural / speaker | binaural | output form |
 | `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | speaker layout; used only with `speaker` |
-| `joc-hrtf-source` | sofa / rosella | sofa | binaural HRTF input |
-| `joc-rosella-filterbank` | 1 / 2 (or public / captured) | 1 | Rosella filterbank: 1 = the public 13-tap / 6-slot bank, 2 = the captured 11-tap / 3-slot bank that matches the reference renderer; only read with `joc-hrtf-source=rosella` |
+| `joc-rosella-filterbank` | 1 / 2 (or public / captured) | 1 | Rosella filterbank: 1 = the public 13-tap / 6-slot bank, 2 = the captured 11-tap / 3-slot bank that matches the reference renderer |
 | `joc-hrtf` | path | empty | empty: default name under `<plugin>\\HRTF\\` or `<plugin>\\..\\HRTF\\` |
 | `joc-mode` | near / mid / far | mid | binaural mode |
 | `joc-gain-db` | float (dB) | 0 | render gain (binaural can exceed full scale) |
@@ -100,8 +99,6 @@ ignored and reported in `joc_decoder.log`.
 | `joc-exclusive` | yes / no | no | sets `audio-exclusive=yes` |
 | `joc-chunk` | seconds | 2.0 | audio bytes written per HTTP chunk |
 | `joc-mute-until-ready` | yes / no | yes | silence the file's own track until the rendered one is selected |
-| `joc-hrtf-cache` | auto / memory / disk / none | auto | compiled-HRTF cache; auto = `<mpv config dir>\\joc-hrtf-cache` |
-| `joc-hrtf-cache-dir` | path | empty | explicit cache directory |
 | `joc-attach` | yes / no | yes | no: serve the stream without adding the track (capture/verification) |
 | `joc-verbose` | yes / no | no | log every HTTP request and reposition |
 | `joc-log` | path | empty | log file; empty: `<mpv config dir>\\joc_decoder.log` |

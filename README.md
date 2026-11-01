@@ -80,7 +80,7 @@ mpv-joc/
 然后编辑 `mpv.conf`（同一目录）：
 
 ```ini
-script-opts=joc-output=binaural,joc-hrtf-source=sofa
+script-opts=joc-output=binaural
 ```
 
 也可以显式加载：
@@ -99,8 +99,7 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 | `joc-enabled` | yes / no | yes | 关掉后插件完全不介入 |
 | `joc-output` | binaural / speaker | binaural | 输出形式 |
 | `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用 |
-| `joc-hrtf-source` | sofa / rosella | sofa | 双耳用哪种 HRTF 输入 |
-| `joc-rosella-filterbank` | 1 / 2（或 public / captured） | 1 | Rosella 滤波器组：1=13 taps/6 slots 的公开版，2=11 taps/3 slots 的捕获版（与参考渲染器一致）；仅 `joc-hrtf-source=rosella` 使用 |
+| `joc-rosella-filterbank` | 1 / 2（或 public / captured） | 1 | Rosella 滤波器组：1=13 taps/6 slots 的公开版，2=11 taps/3 slots 的捕获版（与参考渲染器一致） |
 | `joc-hrtf` | 路径 | 空 | 空则用 `<插件目录>\\HRTF\\` 或 `<插件目录>\\..\\HRTF\\` 下的默认文件名 |
 | `joc-mode` | near / mid / far | mid | 双耳模式 |
 | `joc-gain-db` | 浮点（dB） | 0 | 渲染增益；双耳可能超过满刻度，需要时在这里衰减 |
@@ -114,8 +113,6 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 | `joc-exclusive` | yes / no | no | 设置 `audio-exclusive=yes`（WASAPI 独占） |
 | `joc-chunk` | 秒 | 2.0 | 每次写入 mpv 的音频块大小（0.25–10） |
 | `joc-mute-until-ready` | yes / no | yes | 渲染轨就绪前先把文件自带音轨静音，片头不会先播一遍普通 bed |
-| `joc-hrtf-cache` | auto / memory / disk / none | auto | 编译后的 HRTF（`.jochrtf`）缓存位置；auto = `<mpv 配置目录>\\joc-hrtf-cache` |
-| `joc-hrtf-cache-dir` | 路径 | 空 | 显式指定缓存目录 |
 | `joc-attach` | yes / no | yes | no = 只提供音频端点、不向播放器加轨（抓取/验证用） |
 | `joc-verbose` | yes / no | no | 在日志里记录每个 HTTP 请求与跳转 |
 | `joc-log` | 路径 | 空 | 日志文件；空则写 `<mpv 配置目录>\\joc_decoder.log` |

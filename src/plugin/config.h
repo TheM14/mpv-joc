@@ -11,10 +11,7 @@ struct Config {
     // 0 = binaural (2 channels), 1 = speaker layout (N channels).
     int output = 0;
     std::string layout = "7.1";
-    // 0 = SOFA, 1 = Rosella personalized headphone model.
-    int hrtf_source = 0;
     // Rosella filterbank: 0 = the renderer's default (public bank), 2 = captured.
-    // Only the Rosella input reads it; the SOFA and .jochrtf paths ignore it.
     int rosella_filterbank = 0;
     std::string hrtf_file;          // empty: <plugin dir>\\HRTF\\binaural.<ext>
     // 1 = near, 2 = far, 3 = mid (the renderer's own default).
@@ -37,10 +34,6 @@ struct Config {
     // the opening moments are not the plain bed.  Only candidate inputs are
     // muted, and only for as long as the probe takes.
     bool mute_until_ready = true;
-    // SOFA compilation cache: auto (disk under the mpv config directory, memory
-    // if that is unavailable), memory, disk, none.
-    std::string hrtf_cache = "auto";
-    std::string hrtf_cache_dir;
     // Log file path; empty means <mpv config dir>\joc_decoder.log.
     std::string log_path;
     // Samples requested per HTTP response, in seconds of audio.  A bounded

@@ -2,9 +2,9 @@
 #
 # 所有键都在 mpv 自己的 --script-opts 命名空间里，前缀 joc-。
 # 只有一行也可以：
-#   script-opts=joc-output=binaural,joc-hrtf-source=sofa
+#   script-opts=joc-output=binaural
 #
-script-opts=joc-output=binaural,joc-hrtf-source=sofa,joc-mode=mid,joc-gain-db=0
+script-opts=joc-output=binaural,joc-mode=mid,joc-gain-db=0
 
 # 想让插件强制走 WASAPI（默认 auto：不动 mpv 的 ao 选择）：
 #   script-opts-append=joc-wasapi=yes
@@ -19,7 +19,6 @@ script-opts=joc-output=binaural,joc-hrtf-source=sofa,joc-mode=mid,joc-gain-db=0
 #   script-opts-append=joc-hrtf=D:/hrtf/MyMeasurements.sofa
 #
 # Rosella 模型用捕获版滤波器组（与参考渲染器一致；默认 1 = 公开版）：
-#   script-opts-append=joc-hrtf-source=rosella
 #   script-opts-append=joc-rosella-filterbank=2
 #
 # 交付 24bit 定点：

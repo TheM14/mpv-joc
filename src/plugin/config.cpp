@@ -83,14 +83,6 @@ Config parse_config(const std::string& script_opts, std::string* warnings) {
             } else {
                 unsupported(key + "=" + value);
             }
-        } else if (key == "joc-hrtf-source") {
-            if (value == "sofa") {
-                config.hrtf_source = 0;
-            } else if (value == "rosella" || value == "personalized") {
-                config.hrtf_source = 1;
-            } else {
-                unsupported(key + "=" + value);
-            }
         } else if (key == "joc-rosella-filterbank") {
             if (value == "1" || value == "public") {
                 config.rosella_filterbank = 1;
@@ -133,14 +125,6 @@ Config parse_config(const std::string& script_opts, std::string* warnings) {
             config.log_path = value;
         } else if (key == "joc-mute-until-ready") {
             config.mute_until_ready = truthy(value);
-        } else if (key == "joc-hrtf-cache") {
-            if (value == "auto" || value == "memory" || value == "disk" || value == "none") {
-                config.hrtf_cache = value;
-            } else {
-                unsupported(key + "=" + value);
-            }
-        } else if (key == "joc-hrtf-cache-dir") {
-            config.hrtf_cache_dir = value;
         } else if (key == "joc-chunk") {
             const double seconds = std::atof(value.c_str());
             config.chunk_seconds = (seconds >= 0.25 && seconds <= 10.0) ? seconds : 2.0;

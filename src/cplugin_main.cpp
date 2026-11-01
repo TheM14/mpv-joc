@@ -55,8 +55,7 @@ bool file_exists(const std::string& path) {
 // The default HRTF lives next to the plugin, or one level up when the plugin
 // sits in <mpv>\scripts and the data in <mpv> itself.
 std::string default_hrtf_file(const joc_mpv::Config& config) {
-    const char* name = (config.hrtf_source == 0) ? "binaural.sofa"
-                                                 : "binaural.personalized_headphone";
+    const char* name = "binaural.personalized_headphone";
     const std::string directory = plugin_directory();
     const std::string candidates[] = {directory + "\\HRTF\\" + name,
                                       directory + "\\..\\HRTF\\" + name};
@@ -315,16 +314,8 @@ struct Plugin {
         settings.output = (config.output == 0) ? joc_decode::Output::kBinaural
                                                : joc_decode::Output::kSpeaker;
         settings.speaker_layout = config.layout;
-        settings.hrtf_source = (config.hrtf_source == 0) ? joc_decode::HrtfSource::kSofa
-                                                         : joc_decode::HrtfSource::kRosella;
         settings.rosella_filterbank =
             static_cast<std::uint32_t>(config.rosella_filterbank);
-        if (config.rosella_filterbank != 0 &&
-            settings.hrtf_source != joc_decode::HrtfSource::kRosella) {
-            joc_log::line("config: joc-rosella-filterbank=%d ignored: it applies to "
-                          "joc-hrtf-source=rosella only",
-                          config.rosella_filterbank);
-        }
         settings.hrtf_file = config.hrtf_file;
         if (settings.hrtf_file.empty() && settings.output == joc_decode::Output::kBinaural) {
             settings.hrtf_file = default_hrtf_file(config);
@@ -337,31 +328,6 @@ struct Plugin {
         settings.native_threads = config.native_threads;
         settings.ffmpeg_path = config.ffmpeg;
         settings.core_path = config.core_dll;
-        // The compiled SOFA field is the dominant part of the startup cost;
-        // keeping it on disk makes every later file (and every seek restart-free
-        // start) skip that work.
-        if (config.verbose) {
-            joc_log::line("config: hrtf-cache=%s dir=%s", config.hrtf_cache.c_str(),
-                          config.hrtf_cache_dir.c_str());
-        }
-        if (config.hrtf_cache == "none") {
-            settings.hrtf_cache_policy = 0;
-        } else if (config.hrtf_cache == "memory") {
-            settings.hrtf_cache_policy = 1;
-        } else {
-            // disk and auto: the config directory is the natural place for a
-            // cache; without one the renderer compiles in memory as before.
-            std::string directory = config.hrtf_cache_dir;
-            if (directory.empty() && !config_dir.empty()) {
-                directory = config_dir + "\\joc-hrtf-cache";
-            }
-            if (!directory.empty()) {
-                settings.hrtf_cache_policy = 2;
-                settings.hrtf_cache_dir = directory;
-            } else {
-                settings.hrtf_cache_policy = 1;
-            }
-        }
         settings.pipeline_delay_samples = joc_decode::kJocSeekPipelineDelaySamples;
         settings.seek_preroll_frames = joc_decode::kJocSeekPrerollFrames;
 
@@ -385,20 +351,9 @@ struct Plugin {
         auto source = std::make_shared<joc_mpv::Source>();
         std::string error;
         if (!source->open(path, settings, duration, &error)) {
-            // A disk cache that cannot be used must not cost playback: retry the
-            // way this worked before the cache existed.
-            if (settings.hrtf_cache_policy == 2) {
-                joc_log::line("prepare: disk HRTF cache unusable (%s); retrying in memory",
-                              error.c_str());
-                settings.hrtf_cache_policy = 1;
-                settings.hrtf_cache_dir.clear();
-                error.clear();
-            }
-            if (!source->open(path, settings, duration, &error)) {
-                joc_log::line("start: renderer failed for %s: %s", path.c_str(), error.c_str());
-                osd(mpv, "JOC: " + error);
-                return false;
-            }
+            joc_log::line("start: renderer failed for %s: %s", path.c_str(), error.c_str());
+            osd(mpv, "JOC: " + error);
+            return false;
         }
 
         auto created = std::make_shared<Stream>();
