@@ -209,7 +209,7 @@ static void feed(struct priv *p, int end_of_stream)
         in.byte_count = (uint32_t)bytes;
         uint32_t consumed = 0;
         if (joc_stream_push(p->stream, &in, NULL, &consumed) != JOC_OK) {
-            MP_ERR(p->public.f, "renderer refused an E-AC-3 frame (%u bytes): %s\n",
+            MP_ERR(p->public.f, "renderer refused an E-AC-3 frame (%zu bytes): %s\n",
                    bytes, joc_last_error_detail());
             break;
         }
@@ -779,8 +779,6 @@ static struct mp_decoder *create(struct mp_filter *parent,
     cfg.object_delay_samples = 1473;
     if (binaural) {
         cfg.personalized_headphone_path = hrtf_path;
-            cfg.hrtf_cache_policy = 1;
-        }
     } else {
         cfg.speaker_layout_name = layout;
     }
