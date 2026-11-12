@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace joc_decode {
@@ -97,6 +98,31 @@ struct Settings {
     // rule is reproduced here instead.  Out-of-range samples follow the core's
     // JOC_CLIP_CONTINUE policy: truncated to the edge, and reported.
     bool force_int24 = false;
+    // Ordinary PCM takeover: ffmpeg is the only decoder, the kernel maps the
+    // channels of the decoded 48 kHz float32 WAV.
+    bool pcm_takeover = false;
+};
+
+// Ordinary PCM input: ffmpeg decodes the file to a 48 kHz float32 WAV, the
+// kernel's PCM_LAYOUT stream maps 2.0/5.1/7.1 to fixed objects and renders
+// binaural.  It shares no E-AC-3/JOC state with Engine.
+class PcmEngine {
+public:
+    PcmEngine();
+    ~PcmEngine();
+    PcmEngine(const PcmEngine&) = delete;
+    PcmEngine& operator=(const PcmEngine&) = delete;
+
+    bool start(const std::string& input_path, const Settings& settings, std::string* error);
+    std::size_t read(float* destination, std::size_t frames, std::string* error);
+    bool seek(double seconds, double total_seconds, std::string* error);
+    unsigned channels() const;
+    void stop();
+    double length_seconds() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 // Channel count of a named layout, or 0 when the layout is not one of the

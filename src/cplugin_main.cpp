@@ -260,7 +260,28 @@ struct Plugin {
             if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
         }
         static const char* const kExtensions[] = {"eac3", "ec3", "ac3", "mp4", "m4a", "m4b",
-                                                  "mov",  "mkv", "mka", "webm"};
+                                                  "mov",  "mkv", "mka", "webm", "wav", "flac",
+                                                  "mp3",  "aac", "ogg", "opus", "wma", "aif",
+                                                  "aiff", "thd", "mlp", "truehd", "dts", "dtshd",
+                                                  "dtsma", "wv", "ape", "tta", "mpc", "au", "snd",
+                                                  "caf"};
+        for (const char* known : kExtensions) {
+            if (extension == known) return true;
+        }
+        return false;
+    }
+
+    static bool pcm_extension(const std::string& path) {
+        const std::size_t dot = path.find_last_of('.');
+        if (dot == std::string::npos) return false;
+        std::string extension = path.substr(dot + 1);
+        for (char& ch : extension) {
+            if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+        }
+        static const char* const kExtensions[] = {"wav", "flac", "mp3", "aac", "ogg",
+                                                  "opus", "wma", "aif", "aiff", "ac3", "dts",
+                                                  "dtshd", "dtsma", "wv", "ape", "tta", "mpc",
+                                                  "au", "snd", "caf", "thd", "mlp", "truehd"};
         for (const char* known : kExtensions) {
             if (extension == known) return true;
         }
@@ -280,6 +301,14 @@ struct Plugin {
         }
         const joc_container::Result container = joc_container::scan(path);
         if (container.kind == joc_container::Kind::kNone || !container.eac3) {
+            if (config.pcm && (pcm_extension(path) || container.kind != joc_container::Kind::kNone)) {
+                settings->pcm_takeover = true;
+                settings->audio_index = container.audio_index;
+                *duration = container.duration_seconds;
+                joc_log::line("probe: %s is an ordinary PCM/TrueHD source (ffmpeg takeover)",
+                              path.c_str());
+                return true;
+            }
             joc_log::line("probe: %s is not an E-AC-3 JOC input (%s)", path.c_str(),
                           container.detail.c_str());
             return false;
@@ -289,6 +318,14 @@ struct Plugin {
         if (!joc_decode::probe_container_joc(config.ffmpeg, path, container.audio_index, &verdict,
                                              &detail) ||
             !verdict) {
+            if (config.pcm) {
+                settings->pcm_takeover = true;
+                settings->audio_index = container.audio_index;
+                *duration = container.duration_seconds;
+                joc_log::line("probe: container %s track %u is not JOC; ffmpeg takeover",
+                              path.c_str(), container.audio_index);
+                return true;
+            }
             joc_log::line("probe: container %s track %u is not JOC (%s)", path.c_str(),
                           container.audio_index, detail.c_str());
             return false;
@@ -341,7 +378,7 @@ struct Plugin {
                 duration = from_player;
             }
         }
-        if (!(duration > 0.0)) {
+        if (!(duration > 0.0) && !settings.pcm_takeover) {
             joc_log::line("start: no duration for %s, leaving the input to mpv", path.c_str());
             osd(mpv, "JOC: unknown duration, plugin skipped");
             return false;

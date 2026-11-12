@@ -97,6 +97,7 @@ mpv --script="C:\\path\\to\\joc_mpv.dll" --script-opts=joc-output=speaker,joc-la
 | 键 | 取值 | 默认 | 说明 |
 |---|---|---|---|
 | `joc-enabled` | yes / no | yes | 关掉后插件完全不介入 |
+| `joc-pcm` | yes / no | no | 接管普通 PCM 源；ffmpeg 是唯一解码器，解码为 48k float32 后交给内核 PCM layout 做 binaural |
 | `joc-output` | binaural / speaker | binaural | 输出形式 |
 | `joc-layout` | 2.0 3.1 4.0 5.1 7.1 5.1.2 5.1.4 7.1.2 7.1.4 9.1.4 9.1.6 | 7.1 | 扬声器布局；仅 `speaker` 使用 |
 | `joc-rosella-filterbank` | 1 / 2（或 public / captured） | 1 | Rosella 滤波器组：1=13 taps/6 slots 的公开版，2=11 taps/3 slots 的捕获版（与参考渲染器一致） |

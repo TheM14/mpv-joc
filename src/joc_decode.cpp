@@ -1476,4 +1476,289 @@ std::size_t Engine::read(float* destination, std::size_t frames, std::string* er
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// PcmEngine: ordinary PCM takeover.  ffmpeg decodes once to 48 kHz float32;
+// the kernel's PCM_LAYOUT input maps the channels and renders binaural.
+// ---------------------------------------------------------------------------
+struct PcmEngine::Impl {
+    CoreApi api;
+    joc_stream* stream = nullptr;
+    std::FILE* file = nullptr;
+    std::string temp_path;
+    int channels = 0;
+    std::uint64_t data_offset = 0;
+    std::uint64_t total_frames = 0;
+    std::uint64_t frames_read = 0;
+    double length = 0.0;
+    bool eof = false;
+    bool flushed = false;
+    std::vector<float> feed;
+
+    ~Impl() { stop(); }
+
+    void stop() {
+        if (stream != nullptr) {
+            api.destroy(stream);
+            stream = nullptr;
+        }
+        if (file != nullptr) {
+            std::fclose(file);
+            file = nullptr;
+        }
+        if (!temp_path.empty()) {
+            DeleteFileW(joc_path::to_wide_extended(temp_path).c_str());
+            DeleteFileW(joc_path::to_wide_extended(temp_path + ".log").c_str());
+            temp_path.clear();
+        }
+        feed.clear();
+        channels = 0;
+        data_offset = 0;
+        total_frames = 0;
+        frames_read = 0;
+        length = 0.0;
+        eof = false;
+        flushed = false;
+    }
+};
+
+PcmEngine::PcmEngine() : impl_(new Impl()) {}
+PcmEngine::~PcmEngine() = default;
+
+unsigned PcmEngine::channels() const { return impl_->stream != nullptr ? 2u : 0u; }
+double PcmEngine::length_seconds() const { return impl_->length; }
+
+namespace {
+
+std::uint16_t pcm_u16(const unsigned char* data) {
+    return static_cast<std::uint16_t>(data[0] | (data[1] << 8));
+}
+std::uint32_t pcm_u32(const unsigned char* data) {
+    return static_cast<std::uint32_t>(data[0]) |
+           (static_cast<std::uint32_t>(data[1]) << 8) |
+           (static_cast<std::uint32_t>(data[2]) << 16) |
+           (static_cast<std::uint32_t>(data[3]) << 24);
+}
+std::uint64_t pcm_file_size(std::FILE* file) {
+    const long long current = _ftelli64(file);
+    _fseeki64(file, 0, SEEK_END);
+    const long long end = _ftelli64(file);
+    _fseeki64(file, current, SEEK_SET);
+    return end < 0 ? 0 : static_cast<std::uint64_t>(end);
+}
+
+}  // namespace
+
+bool PcmEngine::start(const std::string& input_path, const Settings& settings,
+                      std::string* error) {
+    impl_->stop();
+    if (!load_api(settings.core_path, &impl_->api, error)) return false;
+
+    wchar_t directory[MAX_PATH] = {};
+    if (GetTempPathW(MAX_PATH, directory) == 0) {
+        if (error != nullptr) *error = "cannot locate the temp directory";
+        return false;
+    }
+    std::wstring temp = directory;
+    if (!temp.empty() && temp.back() != L'\\') temp.push_back(L'\\');
+    temp += L"mpv_joc_pcm_";
+    temp += std::to_wstring(GetCurrentProcessId());
+    temp += L".wav";
+    impl_->temp_path = joc_path::to_utf8(temp.c_str());
+    DeleteFileW(joc_path::to_wide_extended(impl_->temp_path).c_str());
+
+    std::wstring command = L"\"" + joc_path::to_wide_extended(settings.ffmpeg_path) + L"\"";
+    command += L" -hide_banner -loglevel error -nostdin -y -i \"";
+    command += joc_path::to_wide_extended(input_path);
+    command += L"\" -map 0:a:0 -af \"aresample=resampler=soxr:precision=28:osr=48000\" "
+               L"-c:a pcm_f32le \"";
+    command += joc_path::to_wide_extended(impl_->temp_path);
+    command += L"\"";
+
+    SECURITY_ATTRIBUTES inheritable{};
+    inheritable.nLength = sizeof(inheritable);
+    inheritable.bInheritHandle = TRUE;
+    HANDLE null_input = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    &inheritable, OPEN_EXISTING, 0, nullptr);
+    const std::wstring log_path = joc_path::to_wide_extended(impl_->temp_path + ".log");
+    HANDLE log = CreateFileW(log_path.c_str(), GENERIC_WRITE,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable,
+                             CREATE_ALWAYS, 0, nullptr);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = null_input;
+    startup.hStdOutput = log;
+    startup.hStdError = (log != INVALID_HANDLE_VALUE) ? log : null_input;
+    PROCESS_INFORMATION process{};
+    std::vector<wchar_t> mutable_command(command.begin(), command.end());
+    mutable_command.push_back(L'\0');
+    const BOOL created = CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr,
+                                        TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+                                        &process);
+    if (null_input != INVALID_HANDLE_VALUE) CloseHandle(null_input);
+    if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
+    if (created == FALSE) {
+        if (error != nullptr) *error = "cannot start ffmpeg";
+        return false;
+    }
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+
+    impl_->file = _wfopen(joc_path::to_wide_extended(impl_->temp_path).c_str(), L"rb");
+    if (impl_->file == nullptr) {
+        if (error != nullptr) *error = "ffmpeg produced no WAV";
+        return false;
+    }
+    unsigned char riff[12] = {};
+    if (std::fread(riff, 1, sizeof(riff), impl_->file) != sizeof(riff) ||
+        std::memcmp(riff, "RIFF", 4) != 0 || std::memcmp(riff + 8, "WAVE", 4) != 0) {
+        if (error != nullptr) *error = "ffmpeg did not produce a RIFF/WAVE file";
+        return false;
+    }
+    bool have_format = false;
+    std::uint32_t sample_rate = 0;
+    std::uint16_t channels = 0;
+    for (;;) {
+        unsigned char chunk[8] = {};
+        if (std::fread(chunk, 1, sizeof(chunk), impl_->file) != sizeof(chunk)) break;
+        const std::uint32_t size = pcm_u32(chunk + 4);
+        const std::uint64_t payload = static_cast<std::uint64_t>(_ftelli64(impl_->file));
+        if (std::memcmp(chunk, "fmt ", 4) == 0 && size >= 16u) {
+            unsigned char fmt[40] = {};
+            const std::size_t bytes = std::min<std::size_t>(size, sizeof(fmt));
+            if (std::fread(fmt, 1, bytes, impl_->file) != bytes) break;
+            std::uint16_t format = pcm_u16(fmt);
+            channels = pcm_u16(fmt + 2);
+            sample_rate = pcm_u32(fmt + 4);
+            const std::uint16_t bits = pcm_u16(fmt + 14);
+            if (format == 0xFFFEu && bytes >= 40u) format = pcm_u16(fmt + 24);
+            if (format != 3u || bits != 32u) {
+                if (error != nullptr) *error = "decoded WAV is not 32-bit float";
+                return false;
+            }
+            have_format = true;
+        } else if (std::memcmp(chunk, "data", 4) == 0) {
+            impl_->data_offset = payload;
+            impl_->total_frames = size == 0u || size == 0xFFFFFFFFu
+                                      ? (pcm_file_size(impl_->file) - payload) /
+                                            (static_cast<std::uint64_t>(channels) * 4u)
+                                      : size / (static_cast<std::uint64_t>(channels) * 4u);
+        }
+        _fseeki64(impl_->file, static_cast<long long>(payload + size + (size & 1u)), SEEK_SET);
+    }
+    if (!have_format || impl_->data_offset == 0u || sample_rate != 48000u ||
+        (channels != 2 && channels != 6 && channels != 8)) {
+        if (error != nullptr) *error = "decoded WAV has an unsupported layout";
+        return false;
+    }
+    impl_->channels = channels;
+    impl_->length = static_cast<double>(impl_->total_frames) / 48000.0;
+    impl_->feed.assign(1536u * static_cast<std::size_t>(channels), 0.0f);
+    _fseeki64(impl_->file, static_cast<long long>(impl_->data_offset), SEEK_SET);
+
+    joc_stream_config config{};
+    config.struct_size = sizeof(config);
+    config.struct_version = 1;
+    config.input = JOC_STREAM_IN_PCM_LAYOUT;
+    config.output = JOC_STREAM_OUT_BINAURAL;
+    config.pcm_layout = "auto";
+    const std::string hrtf = resolve_hrtf_file(settings);
+    config.personalized_headphone_path = hrtf.c_str();
+    config.binaural_mode = settings.binaural_mode;
+    config.binaural_tail_seconds = settings.tail_seconds;
+    config.object_delay_samples = settings.object_delay_samples;
+    config.gain_db = settings.gain_db;
+    config.rosella_filterbank = settings.rosella_filterbank;
+    const joc_error created_stream = impl_->api.create(&config, &impl_->stream);
+    if (created_stream != JOC_OK) {
+        if (error != nullptr) {
+            *error = std::string("kernel PCM layout stream failed: ") +
+                     impl_->api.error_name(created_stream);
+        }
+        return false;
+    }
+    joc_log::line("pcm: started %s (%u ch, %.3f s, binaural)", input_path.c_str(), channels,
+                  impl_->length);
+    return true;
+}
+
+bool PcmEngine::seek(double seconds, double total_seconds, std::string* error) {
+    (void)total_seconds;
+    if (impl_->stream == nullptr || impl_->file == nullptr) return false;
+    if (seconds < 0.0) seconds = 0.0;
+    std::uint64_t frame = static_cast<std::uint64_t>(seconds * 48000.0 + 0.5);
+    frame = std::min(frame, impl_->total_frames);
+    if (impl_->api.reset(impl_->stream) != JOC_OK) {
+        if (error != nullptr) *error = "kernel PCM reset failed";
+        return false;
+    }
+    _fseeki64(impl_->file,
+              static_cast<long long>(impl_->data_offset +
+                                     frame * static_cast<std::uint64_t>(impl_->channels) * 4u),
+              SEEK_SET);
+    impl_->frames_read = frame;
+    impl_->eof = frame >= impl_->total_frames;
+    impl_->flushed = false;
+    return true;
+}
+
+std::size_t PcmEngine::read(float* destination, std::size_t frames, std::string* error) {
+    if (impl_->stream == nullptr || destination == nullptr || frames == 0u) return 0;
+    std::size_t written = 0;
+    while (written < frames) {
+        joc_stream_buffer output{};
+        output.struct_size = sizeof(output);
+        output.struct_version = 1;
+        output.out_pcm = destination + written * 2u;
+        output.sample_count = static_cast<std::uint32_t>(frames - written);
+        std::uint32_t produced = 0;
+        if (impl_->api.pull(impl_->stream, &output, &produced) != JOC_OK) {
+            if (error != nullptr) *error = "kernel PCM pull failed";
+            return written;
+        }
+        written += produced;
+        if (written == frames) break;
+        if (!impl_->eof) {
+            std::size_t count = 1536u;
+            const std::uint64_t remaining = impl_->total_frames - impl_->frames_read;
+            if (remaining < count) count = static_cast<std::size_t>(remaining);
+            std::fill(impl_->feed.begin(), impl_->feed.end(), 0.0f);
+            if (count != 0u) {
+                std::fread(impl_->feed.data(), sizeof(float),
+                           count * static_cast<std::size_t>(impl_->channels), impl_->file);
+                joc_stream_buffer input{};
+                input.struct_size = sizeof(input);
+                input.struct_version = 1;
+                input.kind = JOC_STREAM_IN_PCM_LAYOUT;
+                input.channels = static_cast<std::uint32_t>(impl_->channels);
+                input.sample_rate = 48000u;
+                input.sample_count = static_cast<std::uint32_t>(count);
+                input.pcm = impl_->feed.data();
+                std::uint32_t consumed = 0;
+                std::uint32_t consumed_bytes = 0;
+                if (impl_->api.push(impl_->stream, &input, &consumed, &consumed_bytes) != JOC_OK) {
+                    if (error != nullptr) *error = "kernel PCM push failed";
+                    return written;
+                }
+            }
+            impl_->frames_read += count;
+            if (impl_->frames_read >= impl_->total_frames || count == 0u) impl_->eof = true;
+            continue;
+        }
+        if (!impl_->flushed) {
+            impl_->api.flush(impl_->stream);
+            impl_->flushed = true;
+            continue;
+        }
+        break;
+    }
+    return written;
+}
+
+void PcmEngine::stop() { impl_->stop(); }
+
 }  // namespace joc_decode

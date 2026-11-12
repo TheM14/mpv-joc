@@ -69,6 +69,8 @@ Config parse_config(const std::string& script_opts, std::string* warnings) {
         const std::string& value = entry.second;
         if (key == "joc-enabled") {
             config.enabled = truthy(value);
+        } else if (key == "joc-pcm") {
+            config.pcm = truthy(value);
         } else if (key == "joc-output") {
             if (value == "binaural" || value == "2ch" || value == "0") {
                 config.output = 0;

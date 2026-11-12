@@ -38,6 +38,8 @@ public:
 private:
     std::mutex mutex_;
     joc_decode::Engine engine_;
+    joc_decode::PcmEngine pcm_;
+    bool pcm_mode_ = false;
     bool open_ = false;
     bool int24_ = false;
     unsigned channels_ = 0;

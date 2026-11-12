@@ -21,15 +21,22 @@ bool Source::open(const std::string& path, const joc_decode::Settings& settings,
     std::lock_guard<std::mutex> guard(mutex_);
     int24_ = settings.force_int24;
     duration_ = duration_seconds;
-    if (!(duration_ > 0.0)) {
+    pcm_mode_ = settings.pcm_takeover;
+    if (!(duration_ > 0.0) && !pcm_mode_) {
         if (error != nullptr) *error = "the input duration is unknown";
         return false;
     }
-    if (!engine_.start(path, settings, error)) {
+    if (pcm_mode_) {
+        if (!pcm_.start(path, settings, error)) {
+            pcm_.stop();
+            return false;
+        }
+    } else if (!engine_.start(path, settings, error)) {
         engine_.stop();
         return false;
     }
-    channels_ = engine_.channels();
+    if (pcm_mode_ && !(duration_ > 0.0)) duration_ = pcm_.length_seconds();
+    channels_ = pcm_mode_ ? 2u : engine_.channels();
     if (channels_ == 0) {
         if (error != nullptr) *error = "the renderer produced no output channels";
         engine_.stop();
@@ -47,8 +54,12 @@ bool Source::open(const std::string& path, const joc_decode::Settings& settings,
 
 void Source::close() {
     std::lock_guard<std::mutex> guard(mutex_);
-    if (open_) engine_.stop();
+    if (open_) {
+        engine_.stop();
+        pcm_.stop();
+    }
     open_ = false;
+    pcm_mode_ = false;
     channels_ = 0;
     total_samples_ = 0;
     produced_bytes_ = 0;
@@ -77,7 +88,11 @@ std::size_t Source::read(std::uint64_t data_byte_offset, std::uint8_t* out, std:
                       static_cast<unsigned long long>(sample),
                       static_cast<unsigned long long>(deliverable),
                       static_cast<unsigned long long>(data_byte_offset));
-        if (!engine_.seek(static_cast<double>(sample) / 48000.0, duration_, error)) return 0;
+        if (pcm_mode_) {
+            if (!pcm_.seek(static_cast<double>(sample) / 48000.0, duration_, error)) return 0;
+        } else if (!engine_.seek(static_cast<double>(sample) / 48000.0, duration_, error)) {
+            return 0;
+        }
         produced_bytes_ = sample * frame_bytes;
         carry_.clear();
         skip_bytes_ = intra;
@@ -97,7 +112,8 @@ std::size_t Source::read(std::uint64_t data_byte_offset, std::uint8_t* out, std:
         if (remaining_samples == 0) break;
         const std::size_t want =
             static_cast<std::size_t>(std::min<std::uint64_t>(kBlockFrames, remaining_samples));
-        const std::size_t got = engine_.read(block_.data(), want, error);
+        const std::size_t got = pcm_mode_ ? pcm_.read(block_.data(), want, error)
+                                          : engine_.read(block_.data(), want, error);
         if (got == 0) break;
         produced_bytes_ += static_cast<std::uint64_t>(got) * frame_bytes;
 

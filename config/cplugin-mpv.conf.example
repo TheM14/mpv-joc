@@ -21,6 +21,11 @@ script-opts=joc-output=binaural,joc-mode=mid,joc-gain-db=0
 # Rosella 模型用捕获版滤波器组（与参考渲染器一致；默认 1 = 公开版）：
 #   script-opts-append=joc-rosella-filterbank=2
 #
+# 接管普通 PCM 源（wav/flac/mp3/aac/ogg/opus/wma/aif/aiff）：
+# 此时 ffmpeg 是唯一解码器，插件把 48k float32 交给内核的 PCM layout 输入，
+# 再走 binaural 渲染；不再经过 mpv 自己的音频解码器。
+#   script-opts-append=joc-pcm=yes
+#
 # 交付 24bit 定点：
 #   script-opts-append=joc-int24=yes
 #

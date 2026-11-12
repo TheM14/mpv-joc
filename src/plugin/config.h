@@ -8,6 +8,8 @@ namespace joc_mpv {
 // script-opts keys are "joc-<name>=<value>" (see config/mpv.conf.example).
 struct Config {
     bool enabled = true;
+    // Take over ordinary PCM sources and render them binaurally through ffmpeg.
+    bool pcm = false;
     // 0 = binaural (2 channels), 1 = speaker layout (N channels).
     int output = 0;
     std::string layout = "7.1";
