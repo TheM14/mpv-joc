@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1490,6 +1491,7 @@ struct PcmEngine::Impl {
     std::uint64_t data_offset = 0;
     std::uint64_t total_frames = 0;
     std::uint64_t frames_read = 0;
+    std::uint64_t emitted_frames = 0;
     double length = 0.0;
     bool eof = false;
     bool flushed = false;
@@ -1516,6 +1518,7 @@ struct PcmEngine::Impl {
         data_offset = 0;
         total_frames = 0;
         frames_read = 0;
+        emitted_frames = 0;
         length = 0.0;
         eof = false;
         flushed = false;
@@ -1563,6 +1566,13 @@ bool PcmEngine::start(const std::string& input_path, const Settings& settings,
     if (!temp.empty() && temp.back() != L'\\') temp.push_back(L'\\');
     temp += L"mpv_joc_pcm_";
     temp += std::to_wstring(GetCurrentProcessId());
+    temp += L"_";
+    {
+        static std::atomic<std::uint64_t> serial{0};
+        temp += std::to_wstring(serial.fetch_add(1, std::memory_order_relaxed));
+    }
+    temp += L"_";
+    temp += std::to_wstring(GetTickCount64());
     temp += L".wav";
     impl_->temp_path = joc_path::to_utf8(temp.c_str());
     DeleteFileW(joc_path::to_wide_extended(impl_->temp_path).c_str());
@@ -1659,6 +1669,7 @@ bool PcmEngine::start(const std::string& input_path, const Settings& settings,
     impl_->length = static_cast<double>(impl_->total_frames) / 48000.0;
     impl_->feed.assign(1536u * static_cast<std::size_t>(channels), 0.0f);
     _fseeki64(impl_->file, static_cast<long long>(impl_->data_offset), SEEK_SET);
+    impl_->emitted_frames = 0;
 
     joc_stream_config config{};
     config.struct_size = sizeof(config);
@@ -1701,6 +1712,7 @@ bool PcmEngine::seek(double seconds, double total_seconds, std::string* error) {
                                      frame * static_cast<std::uint64_t>(impl_->channels) * 4u),
               SEEK_SET);
     impl_->frames_read = frame;
+    impl_->emitted_frames = frame;
     impl_->eof = frame >= impl_->total_frames;
     impl_->flushed = false;
     return true;
@@ -1708,20 +1720,23 @@ bool PcmEngine::seek(double seconds, double total_seconds, std::string* error) {
 
 std::size_t PcmEngine::read(float* destination, std::size_t frames, std::string* error) {
     if (impl_->stream == nullptr || destination == nullptr || frames == 0u) return 0;
+    if (impl_->emitted_frames >= impl_->total_frames) return 0;
+    const std::size_t wanted = static_cast<std::size_t>(
+        std::min<std::uint64_t>(frames, impl_->total_frames - impl_->emitted_frames));
     std::size_t written = 0;
-    while (written < frames) {
+    while (written < wanted) {
         joc_stream_buffer output{};
         output.struct_size = sizeof(output);
         output.struct_version = 1;
         output.out_pcm = destination + written * 2u;
-        output.sample_count = static_cast<std::uint32_t>(frames - written);
+        output.sample_count = static_cast<std::uint32_t>(wanted - written);
         std::uint32_t produced = 0;
         if (impl_->api.pull(impl_->stream, &output, &produced) != JOC_OK) {
             if (error != nullptr) *error = "kernel PCM pull failed";
             return written;
         }
         written += produced;
-        if (written == frames) break;
+        if (written == wanted) break;
         if (!impl_->eof) {
             std::size_t count = 1536u;
             const std::uint64_t remaining = impl_->total_frames - impl_->frames_read;
@@ -1756,6 +1771,7 @@ std::size_t PcmEngine::read(float* destination, std::size_t frames, std::string*
         }
         break;
     }
+    impl_->emitted_frames += written;
     return written;
 }
 

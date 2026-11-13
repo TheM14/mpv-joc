@@ -316,8 +316,14 @@ struct Plugin {
         bool verdict = false;
         std::string detail;
         if (!joc_decode::probe_container_joc(config.ffmpeg, path, container.audio_index, &verdict,
-                                             &detail) ||
-            !verdict) {
+                                             &detail)) {
+            // A failed probe is not evidence that the track is non-JOC.  Keep the
+            // existing JOC path instead of stealing a possibly-JOC file for PCM.
+            joc_log::line("probe: cannot examine container %s track %u (%s); leaving it alone",
+                          path.c_str(), container.audio_index, detail.c_str());
+            return false;
+        }
+        if (!verdict) {
             if (config.pcm) {
                 settings->pcm_takeover = true;
                 settings->audio_index = container.audio_index;
