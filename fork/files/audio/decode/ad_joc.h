@@ -17,6 +17,7 @@
 
 struct ad_joc_params {
     bool binaural;      /* binaural (stereo) output; off uses the speaker layout */
+    bool pcm;           /* also decode ordinary PCM/compressed audio into the renderer */
     char *hrtf;         /* SOFA / Rosella / .jochrtf; the kind is detected */
     char *layout;       /* speaker layout name, e.g. "7.1" or "9.1.6" */
     bool int24;         /* quantise the output to the renderer's int24 rule */

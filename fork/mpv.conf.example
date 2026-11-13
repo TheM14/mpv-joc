@@ -6,6 +6,10 @@ ad = joc
 # Binaural (stereo) output. On by default; "no" renders the speaker layout below.
 ad-joc-binaural = yes
 
+# Take over ordinary PCM and non-JOC audio too. Off by default: with no, only
+# E-AC-3 JOC reaches ad_joc and other codecs use mpv's normal decoder.
+ad-joc-pcm = no
+
 # HRTF input: SOFA, a Rosella .personalized_headphone, or a compiled .jochrtf.
 # The kind is detected from the file, so do not name it here.
 # Leave empty to search <mpv.exe>/HRTF/binaural.personalized_headphone, then the same name under

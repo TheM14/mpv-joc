@@ -30,7 +30,10 @@
 #endif
 
 #include <libavcodec/avcodec.h>
+#include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
+#include <libavutil/samplefmt.h>
+#include <libswresample/swresample.h>
 
 #include "config.h"
 
@@ -62,6 +65,7 @@
 const struct m_sub_options ad_joc_conf = {
     .opts = (const m_option_t[]) {
         {"binaural", OPT_BOOL(binaural)},
+        {"pcm", OPT_BOOL(pcm)},
         {"hrtf", OPT_STRING(hrtf), .flags = M_OPT_FILE},
         {"layout", OPT_STRING(layout), .flags = M_OPT_FILE},
         {"mode", OPT_CHOICE(binaural_mode,
@@ -76,6 +80,7 @@ const struct m_sub_options ad_joc_conf = {
     .size = sizeof(struct ad_joc_params),
     .defaults = &(const struct ad_joc_params){
         .binaural = true,
+        .pcm = false,
         .int24 = false,
         .hrtf = "",
         .layout = "7.1",
@@ -96,6 +101,18 @@ struct priv {
     joc_stream *stream;
     joc_stream_config cfg;
     int out_channels;
+    bool pcm;
+    AVCodecContext *pcm_avctx;
+    AVFrame *pcm_frame;
+    AVPacket *pcm_pkt;
+    struct SwrContext *swr;
+    AVChannelLayout swr_in_layout;
+    enum AVSampleFormat swr_in_format;
+    int swr_in_rate;
+    float *pcm_out;
+    size_t pcm_out_cap;
+    int pcm_out_channels;
+    uint64_t pcm_input_samples;
     struct mp_aframe *fmt;
     struct mp_aframe_pool *pool;
     uint8_t *carry;
@@ -113,7 +130,7 @@ struct priv {
     bool eof;
     bool binaural;
     bool int24;
-    enum { PATH_UNDECIDED, PATH_JOC, PATH_NATIVE } path;
+    enum { PATH_UNDECIDED, PATH_JOC, PATH_NATIVE, PATH_PCM } path;
     struct mp_decoder *native;
     struct mp_codec_params *codec;
     struct mp_frame *probe_packets;
@@ -283,7 +300,8 @@ static bool emit(struct mp_filter *f)
 
     /* The renderer's room tail is not part of the file: stop at the sample the
      * last input frame ends on, exactly as the file frontends do. */
-    uint64_t total = p->frames_in * JOC_FRAME_SAMPLES;
+    uint64_t total = p->pcm ? p->pcm_input_samples
+                            : p->frames_in * JOC_FRAME_SAMPLES;
     uint64_t left = (p->samples_out < total) ? total - p->samples_out : 0;
     if ((uint64_t)produced > left)
         produced = (uint32_t)left;
@@ -395,12 +413,213 @@ static bool classify_has_joc(struct priv *p)
     return st.frames_out > 0;
 }
 
+
+/* Feed one decoded PCM frame into the kernel's fixed-layout input.  mpv can
+ * hand us any sample rate/format/channel count; the renderer needs interleaved
+ * float32 at 48 kHz and one of 2/6/8 channels, so libswresample owns that
+ * conversion.  Mono and the uncommon 3/4/5-channel layouts are folded to
+ * stereo here; the kernel itself only accepts the three layouts it defines. */
+static bool pcm_emit_frame(struct priv *p, AVFrame *frame)
+{
+    if (frame->nb_samples <= 0 || frame->ch_layout.nb_channels <= 0)
+        return true;
+
+    int out_channels = frame->ch_layout.nb_channels;
+    if (out_channels != 2 && out_channels != 6 && out_channels != 8)
+        out_channels = 2;
+
+    if (!p->swr || p->swr_in_format != frame->format ||
+        p->swr_in_rate != frame->sample_rate ||
+        av_channel_layout_compare(&p->swr_in_layout, &frame->ch_layout) != 0) {
+        swr_free(&p->swr);
+        av_channel_layout_uninit(&p->swr_in_layout);
+        AVChannelLayout out_layout;
+        av_channel_layout_default(&out_layout, out_channels);
+        if (swr_alloc_set_opts2(&p->swr, &out_layout, AV_SAMPLE_FMT_FLT, 48000,
+                                &frame->ch_layout, frame->format,
+                                frame->sample_rate, 0, NULL) < 0 ||
+            swr_init(p->swr) < 0) {
+            MP_ERR(p->public.f, "cannot create the PCM resampler\n");
+            av_channel_layout_uninit(&out_layout);
+            swr_free(&p->swr);
+            return false;
+        }
+        av_channel_layout_uninit(&out_layout);
+        av_channel_layout_copy(&p->swr_in_layout, &frame->ch_layout);
+        p->swr_in_format = frame->format;
+        p->swr_in_rate = frame->sample_rate;
+        p->pcm_out_channels = out_channels;
+    }
+
+    int out_max = swr_get_out_samples(p->swr, frame->nb_samples);
+    if (out_max <= 0)
+        return true;
+    size_t need = (size_t)out_max * (size_t)out_channels;
+    if (need > p->pcm_out_cap) {
+        p->pcm_out = talloc_realloc(p, p->pcm_out, float, need);
+        p->pcm_out_cap = need;
+    }
+    uint8_t *out_data[1] = {(uint8_t *)p->pcm_out};
+    int got = swr_convert(p->swr, out_data, out_max,
+                          (const uint8_t **)frame->extended_data,
+                          frame->nb_samples);
+    if (got < 0) {
+        MP_ERR(p->public.f, "PCM resampling failed\n");
+        return false;
+    }
+    int offset = 0;
+    while (offset < got) {
+        int count = got - offset;
+        if (count > JOC_FRAME_SAMPLES)
+            count = JOC_FRAME_SAMPLES;
+        joc_stream_buffer in;
+        memset(&in, 0, sizeof(in));
+        in.struct_size = sizeof(in);
+        in.struct_version = 1;
+        in.kind = JOC_STREAM_IN_PCM_LAYOUT;
+        in.channels = (uint32_t)out_channels;
+        in.sample_rate = 48000;
+        in.sample_count = (uint32_t)count;
+        in.pcm = p->pcm_out + (size_t)offset * (size_t)out_channels;
+        if (joc_stream_push(p->stream, &in, NULL, NULL) != JOC_OK) {
+            MP_ERR(p->public.f, "renderer refused PCM: %s\n",
+                   joc_last_error_detail());
+            return false;
+        }
+        p->pcm_input_samples += (uint64_t)count;
+        offset += count;
+    }
+    return true;
+}
+
+static bool pcm_receive_frames(struct priv *p)
+{
+    while (avcodec_receive_frame(p->pcm_avctx, p->pcm_frame) == 0) {
+        bool ok = pcm_emit_frame(p, p->pcm_frame);
+        av_frame_unref(p->pcm_frame);
+        if (!ok)
+            return false;
+    }
+    return true;
+}
+
+static bool pcm_flush_decoder(struct priv *p)
+{
+    if (!p->pcm_avctx)
+        return true;
+    avcodec_send_packet(p->pcm_avctx, NULL);
+    if (!pcm_receive_frames(p))
+        return false;
+    if (p->swr) {
+        int out_max = swr_get_out_samples(p->swr, 0);
+        if (out_max > 0) {
+            size_t need = (size_t)out_max * (size_t)p->pcm_out_channels;
+            if (need > p->pcm_out_cap) {
+                p->pcm_out = talloc_realloc(p, p->pcm_out, float, need);
+                p->pcm_out_cap = need;
+            }
+            uint8_t *out_data[1] = {(uint8_t *)p->pcm_out};
+            int got = swr_convert(p->swr, out_data, out_max, NULL, 0);
+            int offset = 0;
+            while (got > 0 && offset < got) {
+                int count = got - offset;
+                if (count > JOC_FRAME_SAMPLES)
+                    count = JOC_FRAME_SAMPLES;
+                joc_stream_buffer in;
+                memset(&in, 0, sizeof(in));
+                in.struct_size = sizeof(in);
+                in.struct_version = 1;
+                in.kind = JOC_STREAM_IN_PCM_LAYOUT;
+                in.channels = (uint32_t)p->pcm_out_channels;
+                in.sample_rate = 48000;
+                in.sample_count = (uint32_t)count;
+                in.pcm = p->pcm_out + (size_t)offset * p->pcm_out_channels;
+                if (joc_stream_push(p->stream, &in, NULL, NULL) != JOC_OK)
+                    return false;
+                p->pcm_input_samples += (uint64_t)count;
+                offset += count;
+            }
+        }
+    }
+    return true;
+}
+
+static void process_pcm(struct mp_filter *f)
+{
+    struct priv *p = f->priv;
+    if (!mp_pin_in_needs_data(f->ppins[1]))
+        return;
+
+    if (p->eof_pending) {
+        if (emit(f))
+            return;
+        struct mp_frame eof = p->eof_frame;
+        p->eof_pending = false;
+        p->eof_frame = MP_NO_FRAME;
+        mp_pin_in_write(f->ppins[1], eof);
+        return;
+    }
+
+    struct mp_frame in = mp_pin_out_read(f->ppins[0]);
+    if (in.type == MP_FRAME_EOF) {
+        if (!p->eof) {
+            p->eof = true;
+            if (!pcm_flush_decoder(p))
+                MP_ERR(f, "PCM decoder flush failed\n");
+            joc_stream_flush(p->stream);
+        }
+        p->eof_frame = in;
+        p->eof_pending = true;
+        if (emit(f))
+            return;
+        struct mp_frame eof = p->eof_frame;
+        p->eof_pending = false;
+        p->eof_frame = MP_NO_FRAME;
+        mp_pin_in_write(f->ppins[1], eof);
+        return;
+    }
+    if (in.type != MP_FRAME_PACKET) {
+        if (in.type)
+            MP_ERR(f, "unexpected frame type\n");
+        return;
+    }
+
+    struct demux_packet *pkt = in.data;
+    if (!p->have_pts && pkt->pts != MP_NOPTS_VALUE) {
+        p->next_pts = pkt->pts;
+        p->have_pts = true;
+    }
+    av_packet_unref(p->pcm_pkt);
+    if (av_new_packet(p->pcm_pkt, pkt->len) < 0) {
+        talloc_free(pkt);
+        return;
+    }
+    memcpy(p->pcm_pkt->data, pkt->buffer, pkt->len);
+    p->pcm_pkt->pts = AV_NOPTS_VALUE;
+    talloc_free(pkt);
+
+    if (avcodec_send_packet(p->pcm_avctx, p->pcm_pkt) < 0 ||
+        !pcm_receive_frames(p)) {
+        MP_ERR(f, "PCM decode failed\n");
+        mp_filter_internal_mark_failed(f);
+        return;
+    }
+    av_packet_unref(p->pcm_pkt);
+    if (emit(f))
+        return;
+    mp_filter_internal_mark_progress(f);
+}
+
 static void ad_joc_process(struct mp_filter *f)
 {
     struct priv *p = f->priv;
 
     if (p->path == PATH_NATIVE) {
         process_host(f, p);
+        return;
+    }
+    if (p->path == PATH_PCM) {
+        process_pcm(f);
         return;
     }
     if (!mp_pin_in_needs_data(f->ppins[1]))
@@ -522,8 +741,18 @@ static void ad_joc_reset(struct mp_filter *f)
     }
     p->frames_in = 0;
     p->samples_out = 0;
+    p->pcm_input_samples = 0;
     if (p->avctx)
         avcodec_flush_buffers(p->avctx);
+    if (p->pcm_avctx)
+        avcodec_flush_buffers(p->pcm_avctx);
+    if (p->swr) {
+        swr_free(&p->swr);
+        av_channel_layout_uninit(&p->swr_in_layout);
+        p->swr_in_format = AV_SAMPLE_FMT_NONE;
+        p->swr_in_rate = 0;
+        p->pcm_out_channels = 0;
+    }
     if (p->path == PATH_NATIVE)
         return;
     p->carry_len = 0;
@@ -541,8 +770,16 @@ static void ad_joc_destroy(struct mp_filter *f)
     }
     if (p->avctx)
         avcodec_free_context(&p->avctx);
+    if (p->pcm_avctx)
+        avcodec_free_context(&p->pcm_avctx);
     av_frame_free(&p->avframe);
+    av_frame_free(&p->pcm_frame);
     av_packet_free(&p->avpkt);
+    av_packet_free(&p->pcm_pkt);
+    if (p->swr) {
+        swr_free(&p->swr);
+        av_channel_layout_uninit(&p->swr_in_layout);
+    }
 }
 
 static const struct mp_filter_info ad_joc_filter = {
@@ -710,8 +947,16 @@ static struct mp_decoder *create(struct mp_filter *parent,
                                  struct mp_codec_params *codec,
                                  const char *decoder)
 {
-    if (!codec->codec || strcmp(codec->codec, "eac3") != 0)
+    if (!codec->codec)
         return NULL;
+    const bool is_eac3 = strcmp(codec->codec, "eac3") == 0;
+    struct ad_joc_params *opts = mp_get_config_group(parent, parent->global, &ad_joc_conf);
+    if (!is_eac3 && !opts->pcm) {
+        /* ad=joc may be selected for every audio track.  Without ad-joc-pcm the
+         * component must not take PCM over: hand it straight to libavcodec. */
+        extern const struct mp_decoder_fns ad_lavc;
+        return ad_lavc.create(parent, codec, codec->codec);
+    }
 
     struct mp_filter *da = mp_filter_create(parent, &ad_joc_filter);
     if (!da)
@@ -722,7 +967,7 @@ static struct mp_decoder *create(struct mp_filter *parent,
 
     (void)decoder;
     struct priv *p = da->priv;
-    struct ad_joc_params *opts = mp_get_config_group(p, da->global, &ad_joc_conf);
+    p->pcm = !is_eac3;
     bool binaural = opts->binaural;
     /* The layout name the core is asked for. */
     const char *layout = opts->layout;
@@ -740,34 +985,73 @@ static struct mp_decoder *create(struct mp_filter *parent,
         }
     }
 
-    const AVCodec *lavc = avcodec_find_decoder(AV_CODEC_ID_EAC3);
-    if (!lavc) {
-        MP_ERR(da, "libavcodec has no E-AC-3 decoder for the bed\n");
-        talloc_free(da);
-        return NULL;
-    }
-    p->avctx = avcodec_alloc_context3(lavc);
-    p->avframe = av_frame_alloc();
-    p->avpkt = av_packet_alloc();
-    if (!p->avctx || !p->avframe || !p->avpkt) {
-        talloc_free(da);
-        return NULL;
-    }
-    p->avctx->pkt_timebase = (AVRational){1, 48000};
-    /* The reference frontends decode the bed without applying the stream's
-     * dynamic range metadata. */
-    av_opt_set_double(p->avctx->priv_data, "drc_scale", 0.0, 0);
-    if (avcodec_open2(p->avctx, lavc, NULL) < 0) {
-        MP_ERR(da, "cannot open the E-AC-3 bed decoder\n");
-        talloc_free(da);
-        return NULL;
+    if (is_eac3) {
+        const AVCodec *lavc = avcodec_find_decoder(AV_CODEC_ID_EAC3);
+        if (!lavc) {
+            MP_ERR(da, "libavcodec has no E-AC-3 decoder for the bed\n");
+            talloc_free(da);
+            return NULL;
+        }
+        p->avctx = avcodec_alloc_context3(lavc);
+        p->avframe = av_frame_alloc();
+        p->avpkt = av_packet_alloc();
+        if (!p->avctx || !p->avframe || !p->avpkt) {
+            talloc_free(da);
+            return NULL;
+        }
+        p->avctx->pkt_timebase = (AVRational){1, 48000};
+        /* The reference frontends decode the bed without applying the stream's
+         * dynamic range metadata. */
+        av_opt_set_double(p->avctx->priv_data, "drc_scale", 0.0, 0);
+        if (avcodec_open2(p->avctx, lavc, NULL) < 0) {
+            MP_ERR(da, "cannot open the E-AC-3 bed decoder\n");
+            talloc_free(da);
+            return NULL;
+        }
+    } else {
+        const AVCodec *pcm_lavc = NULL;
+        if (codec->lav_codecpar)
+            pcm_lavc = avcodec_find_decoder(codec->lav_codecpar->codec_id);
+        if (!pcm_lavc)
+            pcm_lavc = avcodec_find_decoder_by_name(codec->codec);
+        if (!pcm_lavc) {
+            MP_ERR(da, "libavcodec has no decoder for '%s'\n", codec->codec);
+            talloc_free(da);
+            return NULL;
+        }
+        p->pcm_avctx = avcodec_alloc_context3(pcm_lavc);
+        p->pcm_frame = av_frame_alloc();
+        p->pcm_pkt = av_packet_alloc();
+        if (!p->pcm_avctx || !p->pcm_frame || !p->pcm_pkt) {
+            talloc_free(da);
+            return NULL;
+        }
+        if (codec->lav_codecpar) {
+            avcodec_parameters_to_context(p->pcm_avctx, codec->lav_codecpar);
+        } else if (codec->extradata && codec->extradata_size > 0) {
+            p->pcm_avctx->extradata = av_mallocz(codec->extradata_size +
+                                                AV_INPUT_BUFFER_PADDING_SIZE);
+            if (p->pcm_avctx->extradata) {
+                memcpy(p->pcm_avctx->extradata, codec->extradata,
+                       codec->extradata_size);
+                p->pcm_avctx->extradata_size = codec->extradata_size;
+            }
+        }
+        p->pcm_avctx->pkt_timebase = (AVRational){1, 48000};
+        if (avcodec_open2(p->pcm_avctx, pcm_lavc, NULL) < 0) {
+            MP_ERR(da, "cannot open the '%s' decoder\n", codec->codec);
+            talloc_free(da);
+            return NULL;
+        }
     }
 
     joc_stream_config cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.struct_size = sizeof(cfg);
     cfg.struct_version = 1;
-    cfg.input = JOC_STREAM_IN_EAC3;
+    cfg.input = p->pcm ? JOC_STREAM_IN_PCM_LAYOUT : JOC_STREAM_IN_EAC3;
+    if (p->pcm)
+        cfg.pcm_layout = "auto";
     cfg.output = binaural ? JOC_STREAM_OUT_BINAURAL : JOC_STREAM_OUT_SPEAKER;
     cfg.binaural_mode = (uint32_t)opts->binaural_mode;
     /* 0 is the kernel's default (the public bank). */
@@ -818,9 +1102,10 @@ static struct mp_decoder *create(struct mp_filter *parent,
     p->public.f = da;
     p->binaural = binaural;
     p->codec = codec;
-    p->path = PATH_UNDECIDED;
+    p->path = p->pcm ? PATH_PCM : PATH_UNDECIDED;
     p->int24 = opts->int24;
-    codec->codec_desc = "E-AC-3 JOC (joc_core renderer)";
+    codec->codec_desc = p->pcm ? "PCM (joc_core binaural takeover)"
+                               : "E-AC-3 JOC (joc_core renderer)";
     MP_VERBOSE(da, "renderer: %s, %d channel(s)%s%s\n",
                binaural ? "binaural" : layout, p->out_channels,
                binaural ? ", hrtf: " : "", binaural ? hrtf_path : "");
@@ -833,6 +1118,16 @@ static void add_decoders(struct mp_decoder_list *list)
 {
     mp_add_decoder(list, "eac3", "joc",
                    "E-AC-3 JOC object renderer (joc_core)");
+    static const char *const pcm_codecs[] = {
+        "flac", "mp3", "aac", "ac3", "truehd", "dts", "alac", "vorbis",
+        "opus", "wavpack", "ape", "tta", "mpc", "pcm_s16le", "pcm_s24le",
+        "pcm_s32le", "pcm_f32le", "pcm_f64le", "pcm_s16be", "pcm_s24be",
+        "pcm_s32be", "pcm_u8", "pcm_alaw", "pcm_mulaw",
+    };
+    for (size_t i = 0; i < MP_ARRAY_SIZE(pcm_codecs); i++) {
+        mp_add_decoder(list, pcm_codecs[i], "joc",
+                       "PCM/audio takeover through joc_core");
+    }
 }
 
 const struct mp_decoder_fns ad_joc = {

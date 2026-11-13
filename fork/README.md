@@ -39,7 +39,7 @@ patches/mpv-ad-joc.patch    对 meson.build / meson.options / f_decoder_wrapper 
 
 注册方式与 mpv-omniphony 的 `ad_orender` 相同：`f_decoder_wrapper.c` 里当 `--ad` 列表包含
 `joc` 且编码是 `eac3` 时切换 driver；`meson.build` 里加源码、链接 `joc_core`、定义
-`HAVE_JOC`；`options/*` 加 `--ad-joc-*` 选项组。
+`HAVE_JOC`；`options/*` 加 `--ad-joc-*` 选项组。`ad-joc-pcm=yes` 让非 E-AC-3 的 PCM/普通压缩音频也进入 joc_core 的 PCM_LAYOUT 路径；默认关闭。
 
 ## 维护方式：文件 + 锚点，而不是行号补丁
 
