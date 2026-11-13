@@ -71,10 +71,43 @@
   × `arm64-v8a` / `universal` 四个包，CI 只保留 allstorage 的 universal 版：权限最全，
   ABI 拆包也不会让工件变多。
 
-签名用的是 CI 现场生成的临时 keystore（`-Pandroid.injected.signing.*`），只保证可安装，
-不代表发布身份；要正式分发就把这段换成仓库 secret 里的 keystore。APK 里仍是原版
-mpv-android 界面，`--ad=joc`、`--ad-joc-hrtf=` 等参数要在应用能读到的 `mpv.conf`
-里给出，HRTF 文件也要放在应用可访问的目录。
+APK 使用仓库 secret 里的固定 release keystore 签名。只要包名不变、签名相同，新 APK 就能
+直接覆盖安装，不需要先卸载。签名密钥丢失后无法再覆盖安装，必须卸载旧版，所以 keystore
+和密码要单独备份。
+
+### 固定签名的一次性设置
+
+在本机生成 release keystore（`keytool` 来自 JDK；建议 PKCS12）：
+
+```powershell
+keytool -genkeypair -v -storetype PKCS12 `
+  -keystore "$env:USERPROFILE\mpv-joc-release.jks" `
+  -alias mpv-joc -keyalg RSA -keysize 4096 -validity 10000
+```
+
+把 keystore 转成单行 Base64 并复制：
+
+```powershell
+[Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes("$env:USERPROFILE\mpv-joc-release.jks")
+) | Set-Clipboard
+```
+
+在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 添加四个 secret：
+
+| Secret | 内容 |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | 上面复制的 Base64 字符串 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
+| `ANDROID_KEY_ALIAS` | `mpv-joc` |
+| `ANDROID_KEY_PASSWORD` | key 密码；PKCS12 通常与 keystore 密码相同 |
+
+`build-android.yml` 在构建时把 Base64 解码到 `$RUNNER_TEMP`，用
+`-Pandroid.injected.signing.*` 交给 Gradle，构建结束后删除临时 keystore。secret
+缺失时任务会直接失败，不会退回临时 key。
+
+APK 里仍是原版 mpv-android 界面，`--ad=joc`、`--ad-joc-hrtf=` 等参数要在应用能读到的
+`mpv.conf` 里给出，HRTF 文件也要放在应用可访问的目录。
 
 ## 参考
 

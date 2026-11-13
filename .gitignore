@@ -4,6 +4,8 @@ dist/
 *.log
 *.log.1
 *.zip
+*.jks
+*.keystore
 *.wav
 HRTF/
 *.sofa

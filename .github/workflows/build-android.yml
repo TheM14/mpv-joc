@@ -230,6 +230,11 @@ jobs:
 
       - name: Build the Android APK
         shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           # download-sdk.sh unpacks the SDK under android/buildscripts/sdk; find
@@ -271,18 +276,29 @@ jobs:
             mkdir -p "$sdk_dir/ndk"
             ln -sfn "$ndk" "$sdk_dir/ndk/${ndk_revision:-$v_ndk}"
           fi
-          # A throwaway key keeps the artifact installable; replace it with a
-          # repository secret when the build should be signed for distribution.
-          keytool -genkeypair -noprompt -keystore "$GITHUB_WORKSPACE/ci-signing.jks" \
-            -storepass android -keypass android -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=mpv-joc CI, O=mpv-joc, C=CN"
+          # The release key is a repository secret, so every build has the
+          # same signature and an APK can be installed over the previous one.
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ] || \
+             [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ] || \
+             [ -z "${ANDROID_KEY_ALIAS:-}" ] || \
+             [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
+            echo "::error::Android signing secrets are missing. Set ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD."
+            exit 1
+          fi
+          keystore="$RUNNER_TEMP/mpv-joc-release.jks"
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          chmod 600 "$keystore"
+          keytool -list -keystore "$keystore" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
           cd "$GITHUB_WORKSPACE/android"
           ./gradlew --no-daemon --stacktrace assembleRelease \
-            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/ci-signing.jks" \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias=androiddebugkey \
-            -Pandroid.injected.signing.key.password=android
+            -Pandroid.injected.signing.store.file="$keystore" \
+            -Pandroid.injected.signing.store.type=PKCS12 \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
 
       - name: Collect the APK
         shell: bash
