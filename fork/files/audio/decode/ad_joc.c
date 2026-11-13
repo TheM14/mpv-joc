@@ -625,6 +625,9 @@ static void process_pcm(struct mp_filter *f)
         }
         p->eof_frame = in;
         p->eof_pending = true;
+        /* Reading EOF does not schedule us again.  No further input will
+         * arrive, so explicitly resume the drain with output still requested. */
+        mp_filter_internal_mark_progress(f);
         return;
     }
     if (in.type != MP_FRAME_PACKET) {
