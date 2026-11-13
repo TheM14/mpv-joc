@@ -92,6 +92,9 @@ const struct m_sub_options ad_joc_conf = {
 
 #define JOC_FRAME_SAMPLES 1536
 #define PULL_BLOCK 4096
+/* Keep the PCM input queue short: a long queue would make flush() render
+ * seconds of audio in one go and starve the audio thread at EOF. */
+#define PCM_MAX_QUEUE_SAMPLES 96000
 
 struct priv {
     struct mp_decoder public;
@@ -560,6 +563,16 @@ static void process_pcm(struct mp_filter *f)
         return;
     }
 
+    /* Do not decode far ahead of what has actually been handed to mpv.  The
+     * kernel keeps a rendered-output queue but its input queue is unbounded;
+     * without this gate a whole track can pile up and flush() at EOF renders
+     * all of it at once. */
+    if (!p->eof && p->pcm_input_samples > p->samples_out + PCM_MAX_QUEUE_SAMPLES) {
+        if (emit(f))
+            return;
+        return;
+    }
+
     struct mp_frame in = mp_pin_out_read(f->ppins[0]);
     if (in.type == MP_FRAME_EOF) {
         if (!p->eof) {
@@ -746,6 +759,15 @@ static void ad_joc_reset(struct mp_filter *f)
         avcodec_flush_buffers(p->avctx);
     if (p->pcm_avctx)
         avcodec_flush_buffers(p->pcm_avctx);
+    if (p->pcm_avctx) {
+        av_frame_unref(p->pcm_frame);
+        av_packet_unref(p->pcm_pkt);
+    }
+    if (p->eof_pending) {
+        mp_frame_unref(&p->eof_frame);
+        p->eof_pending = false;
+    }
+    p->eof_frame = MP_NO_FRAME;
     if (p->swr) {
         swr_free(&p->swr);
         av_channel_layout_uninit(&p->swr_in_layout);
