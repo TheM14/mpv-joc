@@ -45,7 +45,8 @@ WRAPPER_BLOCK = """#if HAVE_JOC
          * objects (binaural or a speaker layout) instead of letting FFmpeg
          * downmix.  Opt-in, so default playback is untouched. */
         if (driver == &ad_lavc && p->codec->codec &&
-            strcmp(p->codec->codec, "eac3") == 0 &&
+            (strcmp(p->codec->codec, "eac3") == 0 ||
+             (p->opts->ad_joc_params && p->opts->ad_joc_params->pcm)) &&
             decoder_name_listed(user_list, "joc"))
         {
             struct mp_decoder_list *joc_list =
@@ -150,6 +151,9 @@ def main():
         tree.put("filters/f_decoder_wrapper.c",
                  s[:pos] + WRAPPER_BLOCK.replace("\n", eol) + eol + s[pos:])
 
+    add_after(tree, "filters/f_decoder_wrapper.c",
+              '#include "options/options.h"',
+              '#include "audio/decode/ad_joc.h"', "ad_joc params include")
     add_after(tree, "filters/f_decoder_wrapper.h",
               "extern const struct mp_decoder_fns ad_dsd;",
               "extern const struct mp_decoder_fns ad_joc;", "ad_dsd extern")
