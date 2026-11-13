@@ -44,9 +44,16 @@ WRAPPER_BLOCK = """#if HAVE_JOC
         /* E-AC-3 JOC through the JustOneCacophony core: --ad=joc renders the
          * objects (binaural or a speaker layout) instead of letting FFmpeg
          * downmix.  Opt-in, so default playback is untouched. */
+        bool joc_pcm = false;
+        if (p->decf) {
+            struct ad_joc_params *joc_opts =
+                mp_get_config_group(NULL, p->decf->global, &ad_joc_conf);
+            joc_pcm = joc_opts && joc_opts->pcm;
+            if (joc_opts)
+                talloc_free(joc_opts);
+        }
         if (driver == &ad_lavc && p->codec->codec &&
-            (strcmp(p->codec->codec, "eac3") == 0 ||
-             (p->opts->ad_joc_params && p->opts->ad_joc_params->pcm)) &&
+            (strcmp(p->codec->codec, "eac3") == 0 || joc_pcm) &&
             decoder_name_listed(user_list, "joc"))
         {
             struct mp_decoder_list *joc_list =
