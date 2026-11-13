@@ -567,9 +567,11 @@ static void process_pcm(struct mp_filter *f)
      * kernel keeps a rendered-output queue but its input queue is unbounded;
      * without this gate a whole track can pile up and flush() at EOF renders
      * all of it at once. */
-    if (!p->eof && p->pcm_input_samples > p->samples_out + PCM_MAX_QUEUE_SAMPLES) {
+    if (p->samples_out > 0 && !p->eof &&
+        p->pcm_input_samples > p->samples_out + PCM_MAX_QUEUE_SAMPLES) {
         if (emit(f))
             return;
+        mp_filter_internal_mark_progress(f);
         return;
     }
 
