@@ -92,9 +92,6 @@ const struct m_sub_options ad_joc_conf = {
 
 #define JOC_FRAME_SAMPLES 1536
 #define PULL_BLOCK 4096
-/* Keep the PCM input queue short: a long queue would make flush() render
- * seconds of audio in one go and starve the audio thread at EOF. */
-#define PCM_MAX_QUEUE_SAMPLES 96000
 
 struct priv {
     struct mp_decoder public;
@@ -116,6 +113,7 @@ struct priv {
     size_t pcm_out_cap;
     int pcm_out_channels;
     uint64_t pcm_input_samples;
+    bool pcm_draining;
     struct mp_aframe *fmt;
     struct mp_aframe_pool *pool;
     uint8_t *carry;
@@ -417,6 +415,31 @@ static bool classify_has_joc(struct priv *p)
 }
 
 
+/* The kernel cannot render queued PCM until another push or flush().  At EOF
+ * push silence one frame at a time instead of calling flush() on a large
+ * backlog: each push drains only the render-ahead cap, and emit() keeps the
+ * output moving.  The extra samples are cut by emit()'s input-duration limit. */
+static bool pcm_push_silence(struct priv *p)
+{
+    int channels = p->pcm_out_channels > 0 ? p->pcm_out_channels : 2;
+    size_t need = (size_t)JOC_FRAME_SAMPLES * (size_t)channels;
+    if (need > p->pcm_out_cap) {
+        p->pcm_out = talloc_realloc(p, p->pcm_out, float, need);
+        p->pcm_out_cap = need;
+    }
+    memset(p->pcm_out, 0, need * sizeof(float));
+    joc_stream_buffer in;
+    memset(&in, 0, sizeof(in));
+    in.struct_size = sizeof(in);
+    in.struct_version = 1;
+    in.kind = JOC_STREAM_IN_PCM_LAYOUT;
+    in.channels = (uint32_t)channels;
+    in.sample_rate = 48000;
+    in.sample_count = JOC_FRAME_SAMPLES;
+    in.pcm = p->pcm_out;
+    return joc_stream_push(p->stream, &in, NULL, NULL) == JOC_OK;
+}
+
 /* Feed one decoded PCM frame into the kernel's fixed-layout input.  mpv can
  * hand us any sample rate/format/channel count; the renderer needs interleaved
  * float32 at 48 kHz and one of 2/6/8 channels, so libswresample owns that
@@ -553,6 +576,35 @@ static void process_pcm(struct mp_filter *f)
     if (!mp_pin_in_needs_data(f->ppins[1]))
         return;
 
+    if (p->pcm_draining) {
+        joc_stream_status_info st;
+        memset(&st, 0, sizeof(st));
+        st.struct_size = sizeof(st);
+        st.struct_version = 1;
+        if (joc_stream_status(p->stream, &st) != JOC_OK) {
+            MP_ERR(f, "cannot query the PCM renderer while draining\n");
+            mp_filter_internal_mark_failed(f);
+            return;
+        }
+        if (st.samples_in < p->pcm_input_samples) {
+            if (!pcm_push_silence(p)) {
+                MP_ERR(f, "renderer refused PCM drain silence\n");
+                mp_filter_internal_mark_failed(f);
+                return;
+            }
+            if (emit(f))
+                return;
+            mp_filter_internal_mark_progress(f);
+            return;
+        }
+        p->pcm_draining = false;
+        if (joc_stream_flush(p->stream) != JOC_OK) {
+            MP_ERR(f, "PCM renderer flush failed: %s\n", joc_last_error_detail());
+            mp_filter_internal_mark_failed(f);
+            return;
+        }
+    }
+
     if (p->eof_pending) {
         if (emit(f))
             return;
@@ -563,34 +615,16 @@ static void process_pcm(struct mp_filter *f)
         return;
     }
 
-    /* Do not decode far ahead of what has actually been handed to mpv.  The
-     * kernel keeps a rendered-output queue but its input queue is unbounded;
-     * without this gate a whole track can pile up and flush() at EOF renders
-     * all of it at once. */
-    if (p->samples_out > 0 && !p->eof &&
-        p->pcm_input_samples > p->samples_out + PCM_MAX_QUEUE_SAMPLES) {
-        if (emit(f))
-            return;
-        mp_filter_internal_mark_progress(f);
-        return;
-    }
-
     struct mp_frame in = mp_pin_out_read(f->ppins[0]);
     if (in.type == MP_FRAME_EOF) {
         if (!p->eof) {
             p->eof = true;
             if (!pcm_flush_decoder(p))
                 MP_ERR(f, "PCM decoder flush failed\n");
-            joc_stream_flush(p->stream);
+            p->pcm_draining = true;
         }
         p->eof_frame = in;
         p->eof_pending = true;
-        if (emit(f))
-            return;
-        struct mp_frame eof = p->eof_frame;
-        p->eof_pending = false;
-        p->eof_frame = MP_NO_FRAME;
-        mp_pin_in_write(f->ppins[1], eof);
         return;
     }
     if (in.type != MP_FRAME_PACKET) {
@@ -757,6 +791,7 @@ static void ad_joc_reset(struct mp_filter *f)
     p->frames_in = 0;
     p->samples_out = 0;
     p->pcm_input_samples = 0;
+    p->pcm_draining = false;
     if (p->avctx)
         avcodec_flush_buffers(p->avctx);
     if (p->pcm_avctx)
