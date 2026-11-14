@@ -451,6 +451,14 @@ static bool pcm_emit_frame(struct priv *p, AVFrame *frame)
     if (frame->nb_samples <= 0 || frame->ch_layout.nb_channels <= 0)
         return true;
 
+    /* A seek can start with an undecodable packet. Anchor the rendered audio
+     * to the first decoded frame, not to the packet that had to be dropped. */
+    double pts = mp_pts_from_av(frame->pts, &p->pcm_avctx->pkt_timebase);
+    if (!p->swr && pts != MP_NOPTS_VALUE) {
+        p->next_pts = pts;
+        p->have_pts = true;
+    }
+
     int out_channels = frame->ch_layout.nb_channels;
     if (out_channels != 2 && out_channels != 6 && out_channels != 8)
         out_channels = 2;
@@ -521,12 +529,15 @@ static bool pcm_emit_frame(struct priv *p, AVFrame *frame)
 
 static bool pcm_receive_frames(struct priv *p)
 {
-    while (avcodec_receive_frame(p->pcm_avctx, p->pcm_frame) == 0) {
+    int ret;
+    while ((ret = avcodec_receive_frame(p->pcm_avctx, p->pcm_frame)) == 0) {
         bool ok = pcm_emit_frame(p, p->pcm_frame);
         av_frame_unref(p->pcm_frame);
         if (!ok)
             return false;
     }
+    if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
+        MP_WARN(p->public.f, "Error decoding PCM audio: %s\n", av_err2str(ret));
     return true;
 }
 
@@ -645,19 +656,30 @@ static void process_pcm(struct mp_filter *f)
     av_packet_unref(p->pcm_pkt);
     if (av_new_packet(p->pcm_pkt, pkt->len) < 0) {
         talloc_free(pkt);
+        mp_filter_internal_mark_failed(f);
         return;
     }
     memcpy(p->pcm_pkt->data, pkt->buffer, pkt->len);
-    p->pcm_pkt->pts = AV_NOPTS_VALUE;
-    talloc_free(pkt);
+    p->pcm_pkt->pts = mp_pts_to_av(pkt->pts, &p->pcm_avctx->pkt_timebase);
+    p->pcm_pkt->dts = mp_pts_to_av(pkt->dts, &p->pcm_avctx->pkt_timebase);
 
-    if (avcodec_send_packet(p->pcm_avctx, p->pcm_pkt) < 0 ||
-        !pcm_receive_frames(p)) {
+    int ret = avcodec_send_packet(p->pcm_avctx, p->pcm_pkt);
+    av_packet_unref(p->pcm_pkt);
+    if (ret == AVERROR(EAGAIN)) {
+        // Drain buffered frames and retry the packet that was not accepted.
+        mp_pin_out_unread(f->ppins[0], in);
+    } else {
+        talloc_free(pkt);
+        /* Like ad_lavc, skip undecodable packets and keep feeding the decoder.
+         * DTS-HD seeks can briefly lack the core needed by a residual frame. */
+        if (ret < 0)
+            MP_WARN(f, "Error decoding PCM audio: %s\n", av_err2str(ret));
+    }
+    if (!pcm_receive_frames(p)) {
         MP_ERR(f, "PCM decode failed\n");
         mp_filter_internal_mark_failed(f);
         return;
     }
-    av_packet_unref(p->pcm_pkt);
     if (emit(f))
         return;
     mp_filter_internal_mark_progress(f);
