@@ -43,6 +43,7 @@
 #include "audio/aframe.h"
 #include "audio/chmap.h"
 #include "audio/format.h"
+#include "common/av_common.h"
 #include "common/msg.h"
 #include "demux/packet.h"
 #include "demux/stheader.h"
@@ -1088,16 +1089,12 @@ static struct mp_decoder *create(struct mp_filter *parent,
             talloc_free(da);
             return NULL;
         }
-        if (codec->lav_codecpar) {
-            avcodec_parameters_to_context(p->pcm_avctx, codec->lav_codecpar);
-        } else if (codec->extradata && codec->extradata_size > 0) {
-            p->pcm_avctx->extradata = av_mallocz(codec->extradata_size +
-                                                AV_INPUT_BUFFER_PADDING_SIZE);
-            if (p->pcm_avctx->extradata) {
-                memcpy(p->pcm_avctx->extradata, codec->extradata,
-                       codec->extradata_size);
-                p->pcm_avctx->extradata_size = codec->extradata_size;
-            }
+        /* Native demuxers (e.g. Matroska) supply mpv codec parameters rather
+         * than lav_codecpar.  Use the same conversion as ad_lavc for both. */
+        if (mp_set_avctx_codec_headers(p->pcm_avctx, codec) < 0) {
+            MP_ERR(da, "cannot set the '%s' decoder parameters\n", codec->codec);
+            talloc_free(da);
+            return NULL;
         }
         p->pcm_avctx->pkt_timebase = (AVRational){1, 48000};
         if (avcodec_open2(p->pcm_avctx, pcm_lavc, NULL) < 0) {
